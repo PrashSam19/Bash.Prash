@@ -15,7 +15,7 @@ const entrySchema = z.object({
   demo: z.string().url().optional(),
   tags: z.array(z.string()).default([]),
   // Name of a playable component registered in src/components/games/index.ts.
-  play: z.enum(['sudoku']).optional(),
+  play: z.enum(['sudoku', 'motherload']).optional(),
 });
 
 const makeCollection = (folder: string) =>

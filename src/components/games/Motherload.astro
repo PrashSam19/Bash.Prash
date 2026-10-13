@@ -1,0 +1,1860 @@
+---
+// Playable Motherload remake. The engine, renderer, story, and save format
+// live in src/games/motherload; this component owns the canvas, the HUD, the
+// shop screens, transmissions, keyboard input, saving, and the game loop.
+import { Image } from 'astro:assets';
+import headshot from '../../assets/headshot.jpg';
+---
+
+<section class="motherload" aria-label="Motherload">
+  <div class="ml-stage">
+    <canvas
+      data-canvas
+      width="1024"
+      height="768"
+      tabindex="0"
+      aria-label="Motherload. Arrow keys or WASD to fly, drive, and dig."></canvas>
+
+    <div class="ml-hud">
+      <div class="ml-left" aria-hidden="true">
+        <div class="ml-tanks">
+          <div class="ml-tank ml-tank-hull"><i data-hull-level></i><span>Hull</span></div>
+          <div class="ml-tank ml-tank-fuel">
+            <i data-fuel-level></i><span>Fuel</span><b class="ml-f">F</b><b class="ml-e">E</b>
+          </div>
+          <p class="ml-alert" data-alert></p>
+        </div>
+        <p class="ml-depth ml-ink" data-depth>0 ft.</p>
+      </div>
+      <p class="ml-cash ml-ink" data-cash aria-hidden="true">$20</p>
+      <button type="button" class="ml-inv-btn" data-inv aria-label="Inventory (I)">
+        <span class="ml-inv-pod" data-inv-pod></span>
+        <span class="ml-ink">INV</span>
+      </button>
+    </div>
+
+    <div class="ml-quake" data-quake hidden aria-hidden="true">!</div>
+
+    <div class="ml-modal" data-modal role="dialog" aria-modal="true" hidden></div>
+
+    <template data-prash-portrait>
+      <Image src={headshot} width={200} alt="Dr. Prash" />
+    </template>
+
+    <button type="button" class="ml-overlay" data-overlay>Click to play</button>
+  </div>
+
+  <div class="ml-bar">
+    <p class="ml-hint">
+      Arrow keys or WASD to fly, drive, and drill. Park at a shop to go in. Save by flying into the
+      hovering save station. <kbd>I</kbd> inventory · <kbd>F</kbd> fuel · <kbd>R</kbd> repair ·
+      <kbd>X</kbd> dynamite · <kbd>C</kbd> plastic explosive · <kbd>Q</kbd>/<kbd>M</kbd> teleport
+    </p>
+    <button type="button" class="ml-new" data-new>New game</button>
+  </div>
+  <p class="ml-save-status" data-save-status aria-live="polite"></p>
+</section>
+
+<style is:global>
+  /* Global to match the other game components; every rule is prefixed. */
+  .motherload {
+    margin: 1.5rem 0 2.5rem;
+  }
+
+  .ml-stage {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    width: 100%;
+    border: 3px solid #1b1a22;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #120a06;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    text-shadow: none;
+    color: #f4eedf;
+    container-type: inline-size;
+  }
+
+  .ml-stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    outline: none;
+  }
+
+  /* --- HUD, after the original: glass tanks and chunky yellow lettering --- */
+  .ml-hud {
+    position: absolute;
+    inset: 0 0 auto 0;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    padding: 1.6cqw 2cqw;
+    pointer-events: none;
+    font-size: 2.4cqw;
+  }
+
+  .ml-ink {
+    margin: 0;
+    font-family: 'Arial Black', 'Arial Rounded MT Bold', Impact, system-ui, sans-serif;
+    font-weight: 900;
+    color: #ffd23a;
+    text-shadow:
+      -0.08em -0.08em 0 #3a2400,
+      0.08em -0.08em 0 #3a2400,
+      -0.08em 0.08em 0 #3a2400,
+      0.08em 0.08em 0 #3a2400,
+      0.16em 0.16em 0 #3a2400;
+  }
+
+  .ml-tanks {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6em;
+  }
+
+  .ml-tank {
+    position: relative;
+    width: 3.5em;
+    height: 4.6em;
+    border-radius: 50% / 14%;
+    border: 0.12em solid rgba(255, 220, 220, 0.75);
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.06) 40%, rgba(0, 0, 0, 0.15));
+    overflow: hidden;
+    box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.35);
+  }
+
+  .ml-tank i {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 100%;
+    border-radius: 50% / 14%;
+    transition: height 0.2s;
+  }
+
+  .ml-tank-hull i {
+    background: linear-gradient(90deg, #f07a7a, #d33a3a 45%, #9e1f24);
+  }
+
+  .ml-tank-fuel {
+    width: 2.8em;
+    border-color: rgba(230, 210, 150, 0.8);
+    overflow: visible;
+  }
+
+  .ml-tank-fuel i {
+    background: linear-gradient(90deg, #d8b07a, #b98a52 45%, #7f5a30);
+  }
+
+  .ml-tank span {
+    position: absolute;
+    inset: 32% 0 auto;
+    text-align: center;
+    font-family: 'Arial Black', Impact, system-ui, sans-serif;
+    font-size: 0.9em;
+    color: #fff;
+    text-shadow: 0.06em 0.06em 0 #6b1a1a, -0.06em -0.06em 0 #6b1a1a;
+  }
+
+  .ml-tank-fuel span {
+    color: #f6d36a;
+    text-shadow: 0.06em 0.06em 0 #4a3010, -0.06em -0.06em 0 #4a3010;
+  }
+
+  .ml-tank b {
+    position: absolute;
+    right: -0.9em;
+    font-family: 'Arial Black', Impact, system-ui, sans-serif;
+    font-size: 0.8em;
+    color: #ffd23a;
+    text-shadow: 0.08em 0.08em 0 #3a2400;
+  }
+
+  .ml-f {
+    top: -0.2em;
+  }
+
+  .ml-e {
+    bottom: -0.2em;
+  }
+
+  .ml-alert {
+    margin: 2.6em 0 0 0.8em;
+    font-family: 'Arial Black', Impact, system-ui, sans-serif;
+    font-size: 1.1em;
+    color: #ff5a2a;
+    white-space: nowrap;
+    text-shadow: 0.08em 0.08em 0 #3a1000;
+    animation: ml-blink 0.9s steps(2) infinite;
+  }
+
+  @keyframes ml-blink {
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .ml-depth {
+    margin-top: 0.3em;
+    font-size: 1.2em;
+  }
+
+  .ml-cash {
+    font-size: 2.2em;
+    line-height: 1;
+  }
+
+  .ml-inv-btn {
+    justify-self: end;
+    display: grid;
+    justify-items: center;
+    pointer-events: auto;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 1.2em;
+  }
+
+  .ml-inv-pod canvas {
+    display: block;
+    width: 3.2em !important;
+    height: auto !important;
+    filter: hue-rotate(40deg) saturate(1.6) brightness(1.1);
+  }
+
+  .ml-quake {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font: 900 26cqw/1 'Arial Black', Impact, sans-serif;
+    color: #ff2a1a;
+    -webkit-text-stroke: 1cqw #fff;
+    pointer-events: none;
+    animation: ml-quake 0.25s steps(2) infinite;
+  }
+
+  .ml-quake[hidden] {
+    display: none;
+  }
+
+  @keyframes ml-quake {
+    50% {
+      color: #fff;
+      -webkit-text-stroke-color: #ff2a1a;
+    }
+  }
+
+  /* --- Shop windows: a riveted stone-and-steel plate, as in the original --- */
+  .ml-modal {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .ml-modal[hidden] {
+    display: none;
+  }
+
+  .ml-win {
+    position: absolute;
+    inset: 3% 4%;
+    display: flex;
+    flex-direction: column;
+    padding: 1.2cqw 2.2cqw 2cqw;
+    border-radius: 3cqw;
+    border: 0.5cqw solid #9b978e;
+    color: #e9e5da;
+    font: 1.8cqw/1.35 Arial, Helvetica, sans-serif;
+    background-color: #615c54;
+    background-image:
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.2 0 0 0 0 0.19 0 0 0 0 0.17 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.02' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.85 0 0 0 0 0.82 0 0 0 0 0.76 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E"),
+      linear-gradient(#77726a, #4f4b45);
+    box-shadow:
+      inset 0 0 0 0.25cqw #3b3832,
+      inset 0 0.5cqw 1cqw rgba(255, 255, 255, 0.2),
+      inset 0 -0.5cqw 1cqw rgba(0, 0, 0, 0.45),
+      0 1.5cqw 4cqw rgba(0, 0, 0, 0.6);
+  }
+
+  .ml-win-title {
+    margin: 0 0 1cqw;
+    padding: 0 4cqw 0.6cqw;
+    border-bottom: 0.35cqw groove rgba(255, 255, 255, 0.28);
+    text-align: center;
+    font: italic 900 4.6cqw/1.1 'Arial Black', Impact, sans-serif;
+    letter-spacing: 0.02em;
+    color: transparent;
+    background: linear-gradient(#ffffff, #b1ada4 55%, #ecebe6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    filter: drop-shadow(0.15cqw 0.2cqw 0 #2d2a25);
+  }
+
+  .ml-win-title em {
+    color: transparent;
+    background: linear-gradient(#ff8a7a, #b8231a);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  .ml-close {
+    position: absolute;
+    top: 1.5cqw;
+    right: 2cqw;
+    width: 3.8cqw;
+    height: 3.8cqw;
+    border-radius: 50%;
+    border: 0.3cqw solid #3b3832;
+    background: radial-gradient(circle at 35% 30%, #d0564a, #7a1c15);
+    color: #2b0f0c;
+    font: 900 2cqw/1 'Arial Black', sans-serif;
+    cursor: pointer;
+  }
+
+  .ml-money {
+    margin: 0;
+    font: 900 4.4cqw/1 'Arial Black', Impact, sans-serif;
+    color: #ffd23a;
+    text-shadow:
+      -0.06em -0.06em 0 #2a1d06,
+      0.06em 0.06em 0 #2a1d06,
+      0.12em 0.12em 0 #2a1d06;
+  }
+
+  .ml-plaque {
+    display: inline-block;
+    margin: 0 0 0.6cqw;
+    padding: 0.3cqw 1cqw;
+    background: linear-gradient(#5c5850, #43403a);
+    border: 0.2cqw solid #2a2722;
+    box-shadow: inset 0 0.2cqw 0 rgba(255, 255, 255, 0.15);
+    font: 900 1.9cqw 'Arial Black', sans-serif;
+    color: #26231e;
+    text-shadow: 0 0.12cqw 0 rgba(255, 255, 255, 0.25);
+  }
+
+  .ml-lcd {
+    display: inline-block;
+    min-width: 12cqw;
+    padding: 0.4cqw 1.2cqw;
+    border: 0.3cqw solid #2a2722;
+    border-radius: 0.6cqw;
+    background: #18211a;
+    box-shadow: inset 0 0.3cqw 0.6cqw rgba(0, 0, 0, 0.7);
+    color: #5ccf6a;
+    font: 2.2cqw ui-monospace, Menlo, monospace;
+    letter-spacing: 0.1em;
+    text-align: center;
+  }
+
+  .ml-btn {
+    margin: 0.8cqw;
+    padding: 1cqw 1.4cqw;
+    border: none;
+    border-radius: 0.4cqw;
+    font: 900 3cqw/1 'Arial Black', Impact, sans-serif;
+    cursor: pointer;
+    color: #2b0f0c;
+    background: linear-gradient(#a8342b, #6e1a14);
+    text-shadow: 0 0.12cqw 0 rgba(255, 255, 255, 0.2);
+    box-shadow:
+      0 0 0 0.6cqw #4a463f,
+      0 0 0 0.9cqw #2a2722,
+      0 0.6cqw 0 0.9cqw rgba(0, 0, 0, 0.35),
+      inset 0 0.25cqw 0.3cqw rgba(255, 255, 255, 0.25),
+      inset 0 -0.3cqw 0.4cqw rgba(0, 0, 0, 0.45);
+  }
+
+  .ml-btn.green {
+    color: #74f06e;
+    background: linear-gradient(#2b6a32, #123d17);
+    text-shadow:
+      0.08em 0.08em 0 #06200a,
+      -0.04em -0.04em 0 #06200a;
+  }
+
+  .ml-btn:hover:not(:disabled) {
+    filter: brightness(1.15);
+  }
+
+  .ml-btn:active:not(:disabled) {
+    transform: translateY(0.2cqw);
+  }
+
+  .ml-btn:disabled {
+    cursor: not-allowed;
+    filter: grayscale(0.7) brightness(0.7);
+  }
+
+  .ml-btn:focus-visible,
+  .ml-text-btn:focus-visible,
+  .ml-cell:focus-visible,
+  .ml-tab:focus-visible {
+    outline: 0.3cqw solid #ffd23a;
+    outline-offset: 0.3cqw;
+  }
+
+  .ml-screen {
+    border: 0.5cqw solid #8c8880;
+    border-radius: 2.5cqw;
+    background: radial-gradient(ellipse at 50% 30%, #1f2b21, #0c110d);
+    box-shadow:
+      inset 0 0 2cqw rgba(0, 0, 0, 0.9),
+      0 0 0 0.3cqw #3b3832;
+    color: #5ccf6a;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+
+  .ml-text-btn {
+    border: none;
+    background: none;
+    color: #5ccf6a;
+    font: 3.4cqw ui-monospace, Menlo, monospace;
+    cursor: pointer;
+  }
+
+  .ml-text-btn:hover:not(:disabled) {
+    color: #9dff9f;
+  }
+
+  .ml-text-btn:disabled {
+    color: #2f6a37;
+    cursor: not-allowed;
+  }
+
+  /* Vertical fuel tube and horizontal hull tube. */
+  .ml-vtube,
+  .ml-htube {
+    position: relative;
+    overflow: hidden;
+    border: 0.3cqw solid #2a2824;
+    background: linear-gradient(90deg, #2a2a28, #5a5850 50%, #2a2a28);
+  }
+
+  .ml-vtube {
+    width: 6cqw;
+    height: 28cqw;
+    border-radius: 3cqw;
+  }
+
+  .ml-vtube i {
+    position: absolute;
+    inset: auto 0 0 0;
+    background: linear-gradient(90deg, #6f5a2a, #c9a85a 45%, #6f5a2a);
+  }
+
+  .ml-htube {
+    width: 100%;
+    height: 6cqw;
+    border-radius: 3cqw;
+    background: linear-gradient(#2a2a28, #5a5850 50%, #2a2a28);
+  }
+
+  .ml-htube i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(#e85a4a, #b8231a 50%, #6e140e);
+  }
+
+  .ml-vtube::before,
+  .ml-vtube::after,
+  .ml-htube::before,
+  .ml-htube::after {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    background: linear-gradient(#77736a, #4a463f);
+    border: 0.15cqw solid #2a2722;
+  }
+
+  .ml-vtube::before,
+  .ml-vtube::after {
+    left: -0.3cqw;
+    right: -0.3cqw;
+    height: 2.2cqw;
+  }
+
+  .ml-vtube::before {
+    top: 28%;
+  }
+
+  .ml-vtube::after {
+    top: 70%;
+  }
+
+  .ml-htube::before,
+  .ml-htube::after {
+    top: -0.3cqw;
+    bottom: -0.3cqw;
+    width: 2.6cqw;
+  }
+
+  .ml-htube::before {
+    left: 20%;
+  }
+
+  .ml-htube::after {
+    left: 72%;
+  }
+
+  /* Propellant Vendor 12000 */
+  .ml-fuel {
+    flex: 1;
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    gap: 3cqw;
+    align-items: start;
+  }
+
+  .ml-fuel-gauge {
+    display: grid;
+    justify-items: center;
+    gap: 1.2cqw;
+  }
+
+  .ml-nozzle {
+    width: 17cqw;
+    margin-top: 6cqw;
+  }
+
+  .ml-btn-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2.6cqw 3cqw;
+    margin-top: 7cqw;
+    padding-right: 1cqw;
+  }
+
+  .ml-btn-grid .ml-btn {
+    margin: 0;
+  }
+
+  .ml-btn-grid .ml-wide {
+    grid-column: 1 / -1;
+    font-size: 3.6cqw;
+    margin-top: 1.5cqw;
+  }
+
+  /* Mineral Processor 3000 */
+  .ml-proc-head,
+  .ml-proc-row {
+    display: grid;
+    grid-template-columns: 1fr 9cqw 4cqw 13cqw 4cqw 15cqw;
+    align-items: center;
+  }
+
+  .ml-proc-head {
+    padding: 0 3cqw 0.6cqw;
+    font: 900 2.6cqw 'Arial', sans-serif;
+    color: #e6e2d8;
+    text-shadow: 0.15cqw 0.15cqw 0 #2a2722;
+  }
+
+  .ml-proc-head span:first-child {
+    display: flex;
+    align-items: center;
+    gap: 1cqw;
+  }
+
+  .ml-proc-screen {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 1.6cqw 3cqw 1cqw;
+    background: #111311;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 2.8cqw;
+  }
+
+  .ml-proc-list {
+    flex: 1;
+    overflow: auto;
+  }
+
+  .ml-proc-row {
+    padding: 0.4cqw 0;
+  }
+
+  .ml-proc-row > span:first-child {
+    display: flex;
+    align-items: center;
+    gap: 1cqw;
+  }
+
+  .ml-num {
+    text-align: right;
+  }
+
+  .ml-proc-foot {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    padding-top: 1cqw;
+  }
+
+  .ml-proc-total {
+    min-width: 18cqw;
+    padding-top: 0.6cqw;
+    border-top: 0.3cqw solid #5ccf6a;
+    text-align: right;
+    font: 900 4cqw Arial, sans-serif;
+  }
+
+  .ml-gear {
+    position: absolute;
+    width: 8cqw;
+    height: 8cqw;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* AutoBuy 2000 */
+  .ml-ab-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 2cqw;
+  }
+
+  .ml-ab-panel {
+    padding: 1cqw;
+    border-radius: 1.2cqw;
+    background: rgba(40, 38, 34, 0.55);
+    box-shadow: inset 0 0.2cqw 0.6cqw rgba(0, 0, 0, 0.6);
+  }
+
+  .ml-ab-cat {
+    display: flex;
+    align-items: center;
+    gap: 1cqw;
+    margin-bottom: 1cqw;
+  }
+
+  .ml-ab-cat .ml-lcd {
+    flex: 1;
+    min-width: 26cqw;
+    text-align: left;
+    font-size: 2.8cqw;
+    background: linear-gradient(#2f6a37, #1d4a24);
+    color: #a8ffa4;
+  }
+
+  .ml-tabs {
+    display: flex;
+    gap: 0.6cqw;
+  }
+
+  .ml-tab {
+    display: grid;
+    justify-items: center;
+    gap: 0.5cqw;
+    padding: 0.5cqw;
+    border: 0.2cqw solid #2a2722;
+    border-radius: 0.4cqw;
+    background: linear-gradient(#5c5850, #3b3832);
+    cursor: pointer;
+  }
+
+  .ml-tab canvas {
+    display: block;
+    width: 3.6cqw !important;
+    height: 3.6cqw !important;
+  }
+
+  .ml-tab::after {
+    content: '';
+    width: 1cqw;
+    height: 1cqw;
+    border-radius: 50%;
+    background: #5a1a14;
+  }
+
+  .ml-tab[aria-pressed='true']::after {
+    background: #ff3a2a;
+    box-shadow: 0 0 1cqw #ff3a2a;
+  }
+
+  .ml-ab-logo {
+    margin: 0 4cqw 0 0;
+    font: italic 900 7cqw/0.9 'Arial Black', Impact, sans-serif;
+    text-align: right;
+    color: transparent;
+    background: linear-gradient(100deg, #b8231a 10%, #f2f2f0 35%, #8a8780 60%, #f2f2f0 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    filter: drop-shadow(0.2cqw 0.3cqw 0 #2a2722);
+    transform: rotate(-6deg);
+  }
+
+  .ml-ab-logo span {
+    display: block;
+    font-size: 8cqw;
+    background: linear-gradient(#e8473a, #8e1a12);
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  .ml-ab-screen {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.6fr;
+    gap: 2cqw;
+    padding: 1.6cqw 2.4cqw;
+    margin-top: 1cqw;
+    background: radial-gradient(ellipse at 50% 30%, #253a27, #142016);
+    font-size: 2.6cqw;
+  }
+
+  .ml-ab-screen h4 {
+    margin: 0 0 0.6cqw;
+    font: 2.8cqw ui-monospace, Menlo, monospace;
+    color: #5ccf6a;
+  }
+
+  .ml-ab-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6cqw;
+  }
+
+  .ml-thumb {
+    width: 11cqw;
+    border: 0.25cqw solid #4a5a2a;
+    background: #0f1710;
+  }
+
+  .ml-thumb canvas,
+  .ml-cell canvas {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  .ml-ab-left hr {
+    width: 90%;
+    margin: 0.4cqw 0;
+    border: none;
+    border-top: 0.3cqw dashed #5ccf6a;
+  }
+
+  .ml-ab-stat {
+    font: 900 3.4cqw Arial, sans-serif;
+  }
+
+  .ml-cells {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1cqw;
+  }
+
+  .ml-cell {
+    position: relative;
+    padding: 0.3cqw;
+    border: 0.25cqw dashed #3f9c4a;
+    background: #0d140e;
+    cursor: pointer;
+  }
+
+  .ml-cell[aria-pressed='true'] {
+    border-style: solid;
+    border-color: #9dff9f;
+    background: #1f3a22;
+  }
+
+  .ml-cell em {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.2cqw;
+    font: normal 1.6cqw ui-monospace, Menlo, monospace;
+    color: #ffd23a;
+    text-align: center;
+  }
+
+  .ml-ab-name {
+    margin-top: 1cqw;
+    font: 900 3cqw Arial, sans-serif;
+  }
+
+  /* Emendation Station 3500 */
+  .ml-emend {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3cqw;
+  }
+
+  .ml-emend-items {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .ml-emend-screen {
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 2cqw;
+    border-radius: 4cqw / 6cqw;
+    font-size: 2cqw;
+  }
+
+  .ml-emend-screen .ml-cells {
+    gap: 1.2cqw;
+  }
+
+  .ml-item-info {
+    margin-top: auto;
+    padding-top: 1cqw;
+    min-height: 7cqw;
+  }
+
+  .ml-item-info b {
+    display: block;
+    color: #9dff9f;
+  }
+
+  .ml-emend-hull {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.2cqw;
+    padding-top: 4cqw;
+  }
+
+  .ml-emend-hull .ml-btn-grid {
+    margin-top: 1cqw;
+    width: 100%;
+  }
+
+  /* Save station, transmissions, inventory, game over */
+  .ml-plain {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2cqw;
+    text-align: center;
+    font-size: 2.6cqw;
+  }
+
+  .ml-plain p {
+    margin: 0;
+    max-width: 70cqw;
+  }
+
+  .ml-tx {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 26cqw 1fr;
+    gap: 3cqw;
+    align-items: start;
+  }
+
+  .ml-tv {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 0.6cqw solid #2a2722;
+    border-radius: 2cqw;
+    background: #0b0f0c;
+    box-shadow: inset 0 0 2cqw #000;
+  }
+
+  .ml-tv img,
+  .ml-tv canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+  }
+
+  .ml-tv.prash img {
+    filter: saturate(1.4) contrast(1.1) sepia(0.15) hue-rotate(-10deg);
+  }
+
+  .ml-tv::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.28) 0 2px, transparent 2px 4px);
+    pointer-events: none;
+  }
+
+  .ml-tv.static {
+    background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E");
+    animation: ml-static 0.2s steps(4) infinite;
+  }
+
+  @keyframes ml-static {
+    to {
+      background-position: 60px 30px;
+    }
+  }
+
+  .ml-tx-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2cqw;
+    font-size: 2.5cqw;
+  }
+
+  .ml-tx-text p {
+    margin: 0;
+  }
+
+  .ml-tx-from {
+    align-self: start;
+  }
+
+  .ml-tx-reward {
+    color: #ffd23a;
+    font-weight: 900;
+  }
+
+  .ml-inv {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 2.5cqw;
+    padding: 2cqw 2.4cqw;
+    font-size: 2.4cqw;
+  }
+
+  .ml-inv h4 {
+    margin: 0 0 1cqw;
+    font: 2.8cqw ui-monospace, Menlo, monospace;
+  }
+
+  .ml-inv ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.6cqw;
+  }
+
+  .ml-inv li {
+    display: flex;
+    align-items: center;
+    gap: 1cqw;
+  }
+
+  .ml-inv li span:not(.ml-key) {
+    flex: 1;
+  }
+
+  .ml-inv .ml-key {
+    flex: none;
+  }
+
+  .ml-inv .ml-text-btn {
+    font-size: 2.2cqw;
+  }
+
+  .ml-key {
+    display: inline-block;
+    min-width: 3cqw;
+    padding: 0 0.5cqw;
+    border-radius: 0.4cqw;
+    background: #ffd23a;
+    color: #2b1a0c;
+    font: 900 2cqw 'Arial Black', sans-serif;
+    text-align: center;
+  }
+
+  .ml-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border: none;
+    background: rgba(0, 0, 0, 0.45);
+    color: #ffd23a;
+    font-family: 'Arial Black', Impact, system-ui, sans-serif;
+    font-size: clamp(1.25rem, 5vw, 2.25rem);
+    text-shadow: 0.08em 0.08em 0 #3a2400;
+    cursor: pointer;
+  }
+
+  .ml-overlay[hidden] {
+    display: none;
+  }
+
+  .ml-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-top: 0.6rem;
+  }
+
+  .ml-hint {
+    flex: 1 1 14rem;
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .ml-hint kbd {
+    font: inherit;
+    font-weight: 700;
+    color: var(--fg);
+  }
+
+  .ml-new {
+    margin-left: auto;
+    flex: none;
+    font: inherit;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg);
+    background: var(--scrim);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+  }
+
+  .ml-save-status {
+    margin: 0.3rem 0 0;
+    min-height: 1.2em;
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: right;
+  }
+</style>
+
+<script>
+  import {
+    ORES,
+    UPGRADES,
+    UPGRADE_KINDS,
+    ITEMS,
+    ITEM_KINDS,
+    REPAIR_PRICE,
+    SCRAMBLE_FT,
+    MARSQUAKE_CHANCE,
+    newGame,
+    step,
+    stats,
+    cargoMass,
+    depthFeet,
+    buildingAt,
+    atSaveStation,
+    buyFuel,
+    fillTankCost,
+    sellCargo,
+    discardOre,
+    repair,
+    totalRepairCost,
+    buyUpgrade,
+    buyItem,
+    useItem,
+    marsquake,
+    receive,
+    tierOf,
+    type Building,
+    type Game,
+    type GameEvent,
+    type Input,
+    type ItemKind,
+    type Tile,
+    type UpgradeKind,
+  } from '../../games/motherload/engine';
+  import { createRenderer } from '../../games/motherload/render';
+  import { serialize, deserialize, type SaveData } from '../../games/motherload/save';
+  import { SPEAKERS, transmission } from '../../games/motherload/story';
+  import { upgradeIcon, categoryIcon, itemIcon, oreIcon, podIcon } from '../../games/motherload/icons';
+
+  const STEP = 1 / 60;
+  const SAVE_KEY = 'motherload.save';
+
+  const KEYS: Record<string, keyof Input> = {
+    ArrowUp: 'up',
+    KeyW: 'up',
+    ArrowDown: 'down',
+    KeyS: 'down',
+    ArrowLeft: 'left',
+    KeyA: 'left',
+    ArrowRight: 'right',
+    KeyD: 'right',
+  };
+
+  const ITEM_KEYS = new Map(ITEM_KINDS.map((kind) => [ITEMS[kind].key, kind]));
+
+  const money = (n: number) => `$${Math.floor(n).toLocaleString()}`;
+  const newSeed = () => (Math.random() * 2 ** 32) >>> 0;
+
+  /** Tiny DOM helper: el('p', { class: 'x' }, 'text', child). */
+  function el<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    attrs: Record<string, string> = {},
+    ...children: (Node | string | null | false)[]
+  ): HTMLElementTagNameMap[K] {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    for (const c of children) if (c !== null && c !== false) node.append(c);
+    return node;
+  }
+
+  function btn(label: string, onClick: () => void, opts: { disabled?: boolean; cls?: string } = {}) {
+    const b = el('button', { type: 'button', class: opts.cls ?? 'ml-btn' }, label);
+    b.disabled = !!opts.disabled;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  const GEAR_SVG =
+    '<svg viewBox="0 0 100 100"><g fill="#b9b5aa" stroke="#4a463f" stroke-width="3">' +
+    Array.from({ length: 10 }, (_, i) => `<rect x="42" y="2" width="16" height="22" rx="2" transform="rotate(${i * 36} 50 50)"/>`).join('') +
+    '<circle cx="50" cy="50" r="30"/></g><circle cx="50" cy="50" r="11" fill="#e6e3da" stroke="#4a463f" stroke-width="3"/></svg>';
+
+  const NOZZLE_SVG = `<svg viewBox="0 0 120 220">
+    <rect x="6" y="6" width="108" height="150" rx="4" fill="#8a867d" stroke="#3b3832" stroke-width="4"/>
+    <rect x="28" y="30" width="64" height="120" fill="#2a2722"/>
+    <rect x="30" y="16" width="60" height="6" fill="#3b3832"/>
+    <rect x="50" y="34" width="20" height="18" fill="#1a1a1a"/>
+    <rect x="47" y="52" width="26" height="6" rx="2" fill="#d6d2c4"/>
+    <rect x="47" y="60" width="26" height="4" rx="2" fill="#d6d2c4"/>
+    <path d="M40 70 C40 60 80 60 80 70 L84 150 C84 170 36 170 36 150 Z" fill="#7a4a34" stroke="#3a2016" stroke-width="3"/>
+    <path d="M48 76 C50 70 60 70 62 76 L62 140" stroke="#a8705a" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <rect x="52" y="168" width="16" height="52" fill="#1d1d1d"/>
+  </svg>`;
+
+  const root = document.querySelector<HTMLElement>('.motherload');
+  if (root) {
+    const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
+    const canvas = $<HTMLCanvasElement>('[data-canvas]');
+    const overlay = $<HTMLButtonElement>('[data-overlay]');
+    const hullLevel = $('[data-hull-level]');
+    const fuelLevel = $('[data-fuel-level]');
+    const alertEl = $('[data-alert]');
+    const cashEl = $('[data-cash]');
+    const depthEl = $('[data-depth]');
+    const modal = $('[data-modal]');
+    const quakeEl = $('[data-quake]');
+    const saveStatus = $('[data-save-status]');
+    const portrait = $<HTMLTemplateElement>('[data-prash-portrait]');
+    $('[data-inv-pod]').append(podIcon(48));
+
+    const renderer = createRenderer(canvas);
+    const input: Input = { left: false, right: false, up: false, down: false };
+    let game: Game;
+    // The open window: how to draw it, whether Esc closes it, and what to do after.
+    let win: { render: () => HTMLElement; closable: boolean; onClose?: () => void } | null = null;
+    // Where the pod was last parked, so a window opens once per visit.
+    let parkedAt: Building['id'] | 'station' | null = null;
+    const queue: string[] = [];
+    let active = false;
+    let started = false;
+
+    function begin(g: Game) {
+      game = g;
+      renderer.reset(game);
+      win = null;
+      modal.hidden = true;
+      parkedAt = null;
+      queue.length = 0;
+    }
+
+    // --- Saving: only at the save station, kept in this browser ------------------
+
+    function storedSave(): SaveData | null {
+      try {
+        const raw = localStorage.getItem(SAVE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function savedAtText(data: SaveData | null): string {
+      if (!data) return 'No saved game yet.';
+      const when = new Date(data.savedAt);
+      return `Last saved ${when.toLocaleDateString()} at ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+    }
+
+    function loadLastSave(): boolean {
+      const loaded = deserialize(storedSave(), newSeed());
+      if (!loaded) return false;
+      begin(loaded);
+      return true;
+    }
+
+    // --- Windows -------------------------------------------------------------------
+
+    function clearInput() {
+      input.left = input.right = input.up = input.down = false;
+    }
+
+    function open(render: () => HTMLElement, closable = true, onClose?: () => void) {
+      clearInput();
+      win = { render, closable, onClose };
+      modal.hidden = false;
+      redraw();
+      (modal.querySelector<HTMLElement>('.ml-btn:not(:disabled), .ml-text-btn:not(:disabled), .ml-close') ?? modal).focus();
+    }
+
+    function close() {
+      if (!win?.closable) return;
+      const after = win.onClose;
+      win = null;
+      modal.hidden = true;
+      after?.();
+      if (queue.length) showTransmission(queue.shift()!);
+      else canvas.focus();
+    }
+
+    /** Re-renders the open window, keeping keyboard focus on the same control. */
+    function redraw() {
+      if (!win) return;
+      const controls = () => [...modal.querySelectorAll<HTMLElement>('button')];
+      const index = controls().indexOf(document.activeElement as HTMLElement);
+      modal.replaceChildren(win.render());
+      const next = controls()[index];
+      if (index >= 0 && next && !(next as HTMLButtonElement).disabled) next.focus();
+    }
+
+    function act(fn: () => void) {
+      return () => {
+        fn();
+        redraw();
+      };
+    }
+
+    /** The shared shop frame: stone plate, engraved title, red close button. */
+    function frame(title: string, red: string, closable: boolean, ...body: (Node | null)[]) {
+      // The AutoBuy has a logo instead of a title bar.
+      const titleEl = title
+        ? el('h3', { class: 'ml-win-title', id: 'ml-win-title' }, title, red ? el('em', {}, ` ${red}`) : null)
+        : null;
+      modal.setAttribute('aria-label', title ? `${title} ${red}`.trim() : 'AutoBuy 2000');
+      return el(
+        'div',
+        { class: 'ml-win' },
+        titleEl,
+        closable ? btn('X', close, { cls: 'ml-close' }) : null,
+        ...body,
+      );
+    }
+
+    function cash() {
+      return el('p', { class: 'ml-money' }, money(game.cash));
+    }
+
+    // Propellant Vendor 12000
+    function fuelWindow() {
+      const s = stats(game);
+      const tube = el('div', { class: 'ml-vtube' }, el('i'));
+      (tube.firstChild as HTMLElement).style.height = `${(game.fuel / s.maxFuel) * 100}%`;
+      const full = s.maxFuel - game.fuel < 0.05;
+      const nozzle = el('div', { class: 'ml-nozzle', 'aria-hidden': 'true' });
+      nozzle.innerHTML = NOZZLE_SVG;
+      return frame(
+        'Propellant Vendor',
+        '12000',
+        true,
+        el(
+          'div',
+          { class: 'ml-fuel' },
+          el(
+            'div',
+            { class: 'ml-fuel-gauge' },
+            cash(),
+            el('span', { class: 'ml-plaque' }, 'Current Fuel'),
+            tube,
+            el('span', { class: 'ml-lcd' }, `${Math.floor(game.fuel)}/${s.maxFuel} L`),
+          ),
+          nozzle,
+          el(
+            'div',
+            { class: 'ml-btn-grid' },
+            ...[5, 10, 25, 50].map((d) => btn(money(d), act(() => buyFuel(game, d)), { disabled: full || game.cash < 1 })),
+            btn('Fill Tank', act(() => buyFuel(game, fillTankCost(game))), {
+              disabled: full || game.cash < 1,
+              cls: 'ml-btn ml-wide',
+            }),
+          ),
+        ),
+      );
+    }
+
+    function gear(pos: string) {
+      const g = el('div', { class: 'ml-gear', 'aria-hidden': 'true', style: pos });
+      g.innerHTML = GEAR_SVG;
+      return g;
+    }
+
+    // Mineral Processor 3000
+    function processorWindow() {
+      const rows = ORES.map((ore) => ({ ore, count: game.cargo.filter((t) => t === ore.tile).length })).filter(
+        (r) => r.count > 0,
+      );
+      const total = rows.reduce((sum, r) => sum + r.count * r.ore.value, 0);
+      const head = el(
+        'div',
+        { class: 'ml-proc-head' },
+        el('span', {}, podIcon(30), 'Cargo Bay'),
+        el('span', { class: 'ml-num' }, 'Qty.'),
+        el('span'),
+        el('span', { class: 'ml-num' }, 'Value'),
+        el('span'),
+        el('span', { class: 'ml-num' }, 'Total Value'),
+      );
+      const list = el(
+        'div',
+        { class: 'ml-proc-list' },
+        ...(rows.length
+          ? rows.map((r) =>
+              el(
+                'div',
+                { class: 'ml-proc-row' },
+                el('span', {}, oreIcon(r.ore.tile, 30), r.ore.name),
+                el('span', { class: 'ml-num' }, String(r.count)),
+                el('span', { class: 'ml-num' }, 'x'),
+                el('span', { class: 'ml-num' }, money(r.ore.value)),
+                el('span', { class: 'ml-num' }, '='),
+                el('span', { class: 'ml-num' }, money(r.count * r.ore.value)),
+              ),
+            )
+          : [el('p', {}, 'Cargo bay empty.')]),
+      );
+      const screen = el(
+        'div',
+        { class: 'ml-screen ml-proc-screen' },
+        list,
+        el(
+          'div',
+          { class: 'ml-proc-foot' },
+          btn('[SELL ALL]', act(() => sellCargo(game)), { disabled: !rows.length, cls: 'ml-text-btn' }),
+          el('span', { class: 'ml-proc-total' }, money(total)),
+        ),
+      );
+      const plate = frame('Mineral Processor', '3000', true, head, screen);
+      plate.append(
+        gear('left:-2cqw;top:9cqw'),
+        gear('right:-2cqw;top:9cqw'),
+        gear('left:-2cqw;bottom:-1cqw'),
+        gear('right:-2cqw;bottom:-1cqw'),
+      );
+      return plate;
+    }
+
+    // AutoBuy 2000
+    let abKind: UpgradeKind = 'drill';
+    let abTier = 1;
+
+    function pickAbTier(kind: UpgradeKind) {
+      const owned = game.upgrades[kind];
+      abTier = Math.min(UPGRADES[kind].tiers.length - 1, owned + 1);
+    }
+
+    function junkWindow() {
+      const line = UPGRADES[abKind];
+      const owned = game.upgrades[abKind];
+      const sel = line.tiers[abTier];
+      const tabs = el(
+        'div',
+        { class: 'ml-tabs', role: 'toolbar', 'aria-label': 'Upgrade type' },
+        ...UPGRADE_KINDS.map((kind) => {
+          const b = el(
+            'button',
+            { type: 'button', class: 'ml-tab', 'aria-pressed': String(kind === abKind), 'aria-label': UPGRADES[kind].label },
+            categoryIcon(kind),
+          );
+          b.addEventListener(
+            'click',
+            act(() => {
+              abKind = kind;
+              pickAbTier(kind);
+            }),
+          );
+          return b;
+        }),
+        (() => {
+          const b = el('button', { type: 'button', class: 'ml-tab', 'aria-label': 'Leave shop' }, categoryIcon('exit'));
+          b.addEventListener('click', close);
+          return b;
+        })(),
+      );
+      const cells = line.tiers.slice(1).map((tier, i) => {
+        const t = i + 1;
+        const cell = el(
+          'button',
+          { type: 'button', class: 'ml-cell', 'aria-pressed': String(t === abTier), 'aria-label': tier.name },
+          upgradeIcon(abKind, t),
+          t === owned ? el('em', {}, 'INSTALLED') : null,
+        );
+        cell.addEventListener('click', act(() => (abTier = t)));
+        return cell;
+      });
+      const can = abTier !== owned && game.cash >= sel.price;
+      return frame(
+        '',
+        '',
+        true,
+        el(
+          'div',
+          { class: 'ml-ab-top' },
+          el(
+            'div',
+            { class: 'ml-ab-panel' },
+            el('div', { class: 'ml-ab-cat' }, gearSmall(), el('span', { class: 'ml-lcd' }, line.label.toUpperCase()), gearSmall()),
+            tabs,
+          ),
+          el('p', { class: 'ml-ab-logo', 'aria-label': 'AutoBuy 2000' }, 'AutoBuy', el('span', {}, '2000')),
+        ),
+        cash(),
+        el(
+          'div',
+          { class: 'ml-screen ml-ab-screen' },
+          el(
+            'div',
+            { class: 'ml-ab-left' },
+            el('h4', {}, 'CURRENT:'),
+            el('div', { class: 'ml-thumb' }, upgradeIcon(abKind, owned)),
+            el('span', {}, tierOf(game, abKind).name),
+            el('hr'),
+            el('span', { class: 'ml-ab-stat' }, `${sel.value}${line.unit === '%' ? '%' : ` ${line.unit}`}`),
+            el('span', { class: 'ml-ab-stat' }, money(sel.price)),
+            btn(
+              abTier === owned ? '[INSTALLED]' : '[PURCHASE]',
+              act(() => buyUpgrade(game, abKind, abTier)),
+              { disabled: !can, cls: 'ml-text-btn' },
+            ),
+          ),
+          el(
+            'div',
+            {},
+            el('h4', {}, 'AVAILABLE UPGRADES:'),
+            el('div', { class: 'ml-cells' }, ...cells),
+            el('p', { class: 'ml-ab-name' }, sel.name),
+          ),
+        ),
+      );
+    }
+
+    function gearSmall() {
+      const g = el('span', { 'aria-hidden': 'true', style: 'width:4cqw;height:4cqw;display:inline-block' });
+      g.innerHTML = GEAR_SVG.replace('#b9b5aa', '#3b3832');
+      return g;
+    }
+
+    // Emendation Station 3500
+    let emItem: ItemKind = 'fuel';
+
+    function emendationWindow() {
+      const s = stats(game);
+      const item = ITEMS[emItem];
+      const cells = ITEM_KINDS.map((kind) => {
+        const cell = el(
+          'button',
+          { type: 'button', class: 'ml-cell', 'aria-pressed': String(kind === emItem), 'aria-label': ITEMS[kind].name },
+          itemIcon(kind),
+        );
+        cell.addEventListener('click', act(() => (emItem = kind)));
+        return cell;
+      });
+      const tube = el('div', { class: 'ml-htube' }, el('i'));
+      (tube.firstChild as HTMLElement).style.width = `${(game.hull / s.maxHull) * 100}%`;
+      const damaged = s.maxHull - game.hull >= 0.05;
+      return frame(
+        'Emendation Station',
+        '3500',
+        true,
+        el(
+          'div',
+          { class: 'ml-emend' },
+          el(
+            'div',
+            { class: 'ml-emend-items' },
+            el('div', { style: 'display:flex;gap:4cqw;align-items:center;align-self:stretch' }, cash(), el('span', { class: 'ml-plaque' }, 'Items')),
+            el(
+              'div',
+              { class: 'ml-screen ml-emend-screen' },
+              el('div', { class: 'ml-cells' }, ...cells),
+              el(
+                'div',
+                { class: 'ml-item-info' },
+                el('b', {}, `${item.name} · ${money(item.price)}`),
+                el('span', {}, `${item.description} Key: ${item.label}. You have ${game.items[emItem]}.`),
+              ),
+            ),
+            btn('BUY', act(() => buyItem(game, emItem)), { disabled: game.cash < item.price, cls: 'ml-btn green' }),
+          ),
+          el(
+            'div',
+            { class: 'ml-emend-hull' },
+            el('span', { class: 'ml-plaque' }, 'Current Hull'),
+            tube,
+            el('span', { class: 'ml-lcd' }, `${Math.floor(game.hull)}/${s.maxHull} HP`),
+            el(
+              'div',
+              { class: 'ml-btn-grid' },
+              ...[50, 100, 200, 500].map((d) =>
+                btn(money(d), act(() => repair(game, d)), { disabled: !damaged || game.cash < 1, cls: 'ml-btn green' }),
+              ),
+              btn(`Total Repair`, act(() => repair(game, totalRepairCost(game))), {
+                disabled: !damaged || game.cash < 1,
+                cls: 'ml-btn green ml-wide',
+              }),
+            ),
+            el('span', {}, `About ${money(REPAIR_PRICE)} per HP`),
+          ),
+        ),
+      );
+    }
+
+    const SHOPS: Record<Building['id'], () => HTMLElement> = {
+      fuel: fuelWindow,
+      processing: processorWindow,
+      junk: junkWindow,
+      repair: emendationWindow,
+    };
+
+    // Quantum Particle State Analyzer 6000: the save point.
+    function stationWindow() {
+      const data = storedSave();
+      return frame(
+        'Quantum Particle State Analyzer',
+        '6000',
+        true,
+        el(
+          'div',
+          { class: 'ml-plain' },
+          el('p', {}, 'Your cash, upgrades, items, hull, and fuel are saved in this browser. Your tunnels are not: the underground resets when you load.'),
+          el('span', { class: 'ml-lcd' }, savedAtText(data)),
+          btn(
+            'Save Game',
+            act(() => {
+              const fresh = serialize(game);
+              try {
+                localStorage.setItem(SAVE_KEY, JSON.stringify(fresh));
+                saveStatus.textContent = `${savedAtText(fresh)} Reopen this page in this browser to continue.`;
+              } catch {
+                saveStatus.textContent = 'This browser is blocking storage, so the game could not be saved.';
+              }
+            }),
+            { cls: 'ml-btn green' },
+          ),
+        ),
+      );
+    }
+
+    function transmissionWindow(id: string) {
+      const t = transmission(id)!;
+      const tv = el('div', { class: `ml-tv ${t.from === 'prash' ? 'prash' : t.from === 'unknown' ? 'static' : ''}` });
+      if (t.from === 'prash') tv.append(portrait.content.cloneNode(true));
+      else if (t.from !== 'unknown') tv.append(podIcon(160));
+      return frame(
+        'Incoming Transmission',
+        '',
+        true,
+        el(
+          'div',
+          { class: 'ml-tx' },
+          tv,
+          el(
+            'div',
+            { class: 'ml-tx-text' },
+            el('span', { class: 'ml-plaque ml-tx-from' }, SPEAKERS[t.from]),
+            ...t.lines.map((line) => el('p', {}, line)),
+            t.reward ? el('p', { class: 'ml-tx-reward' }, `+${money(t.reward)} deposited.`) : null,
+            btn('OK', close, { cls: 'ml-btn green' }),
+          ),
+        ),
+      );
+    }
+
+    function showTransmission(id: string) {
+      if (win) queue.push(id);
+      else open(() => transmissionWindow(id));
+    }
+
+    function inventoryWindow() {
+      const s = stats(game);
+      const ores = ORES.map((ore) => ({ ore, count: game.cargo.filter((t) => t === ore.tile).length })).filter(
+        (r) => r.count > 0,
+      );
+      return frame(
+        'Inventory',
+        '',
+        true,
+        el(
+          'div',
+          { class: 'ml-screen ml-inv' },
+          el(
+            'div',
+            {},
+            el('h4', {}, `CARGO ${game.cargo.length}/${s.cargoCap} · POD ${s.mass.toLocaleString()} kg`),
+            ores.length
+              ? el(
+                  'ul',
+                  {},
+                  ...ores.map((r) =>
+                    el(
+                      'li',
+                      {},
+                      oreIcon(r.ore.tile, 28),
+                      el('span', {}, `${r.ore.name} ×${r.count} (${r.ore.weight} kg each)`),
+                      btn('[DUMP 1]', act(() => discardOre(game, r.ore.tile as Tile)), { cls: 'ml-text-btn' }),
+                    ),
+                  ),
+                )
+              : el('p', {}, 'Empty.'),
+            el('p', {}, `Dump heavy ore to fly faster. Ore weighs ${cargoMass(game).toLocaleString()} kg.`),
+          ),
+          el(
+            'div',
+            {},
+            el('h4', {}, 'ITEMS'),
+            el(
+              'ul',
+              {},
+              ...ITEM_KINDS.map((kind) =>
+                el('li', {}, el('span', { class: 'ml-key' }, ITEMS[kind].label), el('span', {}, `${ITEMS[kind].name} ×${game.items[kind]}`)),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    function confirmNewWindow() {
+      return frame(
+        'New Game?',
+        '',
+        true,
+        el(
+          'div',
+          { class: 'ml-plain' },
+          el('p', {}, 'Start over in a brand new world? Anything since your last save is lost. Your saved game stays until you save over it.'),
+          btn('Start over', () => {
+            begin(newGame(newSeed()));
+            welcome();
+          }),
+        ),
+      );
+    }
+
+    function gameOverWindow() {
+      const why =
+        game.over === 'fuel' ? 'Your fuel ran dry and the pod exploded.' : 'Your hull gave out and the pod exploded.';
+      const data = storedSave();
+      return frame(
+        'Game Over',
+        '',
+        false,
+        el(
+          'div',
+          { class: 'ml-plain' },
+          el('p', {}, why),
+          el('p', {}, `Deepest point: ${game.record.deepest.toLocaleString()} ft · Earned: ${money(game.record.earned)}`),
+          el('span', { class: 'ml-lcd' }, savedAtText(data)),
+          el(
+            'div',
+            {},
+            data
+              ? btn('Load last save', () => {
+                  if (loadLastSave()) canvas.focus();
+                }, { cls: 'ml-btn green' })
+              : null,
+            btn('New game', () => {
+              begin(newGame(newSeed()));
+              welcome();
+            }),
+          ),
+        ),
+      );
+    }
+
+    function welcome() {
+      if (receive(game, 'welcome')) showTransmission('welcome');
+      else canvas.focus();
+    }
+
+    // --- HUD ---------------------------------------------------------------------
+
+    function renderHud(time: number) {
+      const s = stats(game);
+      fuelLevel.style.height = `${(game.fuel / s.maxFuel) * 100}%`;
+      hullLevel.style.height = `${(game.hull / s.maxHull) * 100}%`;
+      const fuel = game.fuel / s.maxFuel;
+      alertEl.textContent = game.over ? '' : fuel < 0.2 ? 'FUEL CRITICAL !' : game.hull / s.maxHull < 0.25 ? 'HULL CRITICAL !' : '';
+      cashEl.textContent = money(game.cash);
+      const d = depthFeet(game.pod);
+      // Below about -5,800 ft the altimeter scrambles, as in the original.
+      depthEl.textContent =
+        d >= SCRAMBLE_FT
+          ? `-?${String(Math.floor((time * 37) % 100000)).padStart(5, '0')} ft.`
+          : d === 0
+            ? '0 ft.'
+            : `-${d.toLocaleString()} ft.`;
+    }
+
+    // --- Input and loop ------------------------------------------------------------
+
+    function handleEvents(events: GameEvent[]) {
+      for (const ev of events) {
+        switch (ev.type) {
+          case 'collected':
+            renderer.floatText(game, `+1 ${ev.ore.name}`);
+            break;
+          case 'cargoFull':
+            renderer.floatText(game, 'Cargo bay full!', '#ff7a5c');
+            break;
+          case 'artifact':
+            renderer.floatText(game, `${ev.artifact.name}! +${money(ev.artifact.value)}`, '#ffffff');
+            break;
+          case 'hazard':
+            renderer.burst(ev.tx, ev.ty, ev.kind === 'gas' ? 1 : 0, ev.kind);
+            break;
+          case 'blast':
+            if (!events.some((e) => e.type === 'hazard')) renderer.burst(ev.tx, ev.ty, ev.radius, 'blast');
+            break;
+          case 'teleport':
+            renderer.reset(game);
+            break;
+          case 'transmission':
+            showTransmission(ev.id);
+            break;
+          case 'over':
+            queue.length = 0;
+            open(gameOverWindow, false);
+            break;
+        }
+      }
+    }
+
+    canvas.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyI') {
+        e.preventDefault();
+        if (!game.over) open(inventoryWindow);
+        return;
+      }
+      const item = ITEM_KEYS.get(e.code);
+      if (item) {
+        e.preventDefault();
+        if (!e.repeat) handleEvents(useItem(game, item));
+        return;
+      }
+      const key = KEYS[e.code];
+      if (!key) return;
+      e.preventDefault();
+      input[key] = true;
+    });
+
+    canvas.addEventListener('keyup', (e) => {
+      const key = KEYS[e.code];
+      if (key) input[key] = false;
+    });
+
+    // Starts or resumes play. Runs on focus and on the overlay click directly,
+    // since a focus event doesn't fire when the page itself isn't focused.
+    function activate() {
+      active = true;
+      overlay.hidden = true;
+      if (!started) {
+        started = true;
+        welcome();
+      }
+    }
+
+    canvas.addEventListener('focus', activate);
+
+    canvas.addEventListener('blur', () => {
+      active = false;
+      clearInput();
+      // Focus moving into a window isn't a pause; the window already stops play.
+      setTimeout(() => {
+        if (modal.hidden && document.activeElement !== canvas) {
+          overlay.textContent = 'Paused. Click to resume';
+          overlay.hidden = false;
+        }
+      });
+    });
+
+    modal.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    });
+    overlay.addEventListener('click', () => {
+      canvas.focus();
+      activate();
+    });
+    $<HTMLButtonElement>('[data-inv]').addEventListener('click', () => {
+      if (!game.over && modal.hidden) open(inventoryWindow);
+    });
+    $<HTMLButtonElement>('[data-new]').addEventListener('click', () => {
+      if (game.over) {
+        begin(newGame(newSeed()));
+        welcome();
+      } else {
+        open(confirmNewWindow);
+      }
+    });
+
+    function quake() {
+      marsquake(game, newSeed());
+      renderer.shake(1.6);
+      quakeEl.hidden = false;
+      setTimeout(() => (quakeEl.hidden = true), 2200);
+    }
+
+    function checkStops() {
+      const b = buildingAt(game);
+      const here = b ? b.id : atSaveStation(game) ? 'station' : null;
+      if (here && here !== parkedAt && modal.hidden && !game.over) {
+        if (here === 'station') {
+          open(stationWindow);
+        } else {
+          // Every shop visit rolls a small chance of a marsquake, as in the original.
+          const shaken = Math.random() < MARSQUAKE_CHANCE;
+          if (b!.id === 'junk') pickAbTier(abKind);
+          open(SHOPS[b!.id], true, shaken ? quake : undefined);
+        }
+      }
+      parkedAt = here;
+    }
+
+    let last = performance.now();
+    let acc = 0;
+
+    function frameLoop(now: number) {
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+      if (active && modal.hidden) {
+        acc += dt;
+        while (acc >= STEP) {
+          handleEvents(step(game, input, STEP));
+          acc -= STEP;
+        }
+        checkStops();
+      } else {
+        acc = 0;
+      }
+      renderer.draw(game, dt, now / 1000);
+      renderHud(now / 1000);
+      requestAnimationFrame(frameLoop);
+    }
+
+    if (loadLastSave()) {
+      started = true;
+      overlay.textContent = 'Click to continue';
+      saveStatus.textContent = `Welcome back. ${savedAtText(storedSave())}`;
+    } else {
+      begin(newGame(newSeed()));
+    }
+    requestAnimationFrame(frameLoop);
+  }
+</script>
