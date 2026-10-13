@@ -1,0 +1,29 @@
+---
+import { Image } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import headshot from '../assets/headshot.jpg';
+---
+
+<Base title="About" description="About Prashanth Sampathkumar.">
+  <h1>About</h1>
+  <div class="about-grid">
+    <Image class="portrait" src={headshot} width={440} alt="Prashanth Sampathkumar" />
+    <div class="prose">
+      <!-- TODO: placeholder copy. Rewrite in your own voice. -->
+      <p>
+        Ahhhhh I guess if you've come this far I can tell you what I'm up to G. I'm a web developer and AI engineer after studying computer science at the
+        University of Georgia. I have spent my career exploring different industries to understand the practical use of technology per industry. So far I have worked within benefits
+        administration, FinTech, SAAS consulting, and health-care systems.
+      </p>
+      <p>
+        Outside of work I helped start a small construction supply business, which is
+        where most of the tools on this site came from. Somebody had to build
+        them.
+      </p>
+      <p>
+        The games section is honestly just pure endorphines. I grew up on the classics and I am
+        rebuilding them from memory to understand how they actually work (now that I can).
+      </p>
+    </div>
+  </div>
+</Base>

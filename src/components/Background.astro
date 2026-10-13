@@ -1,0 +1,18 @@
+---
+// Two fixed backgrounds, one per theme. Both are optimized at build time
+// and both load up front, so the toggle crossfades with nothing to fetch.
+// To change them: replace src/assets/bg-light.jpg and src/assets/bg-dark.jpg.
+import { getImage } from 'astro:assets';
+import lightSrc from '../assets/bg-light.jpg';
+import darkSrc from '../assets/bg-dark.jpg';
+
+const light = await getImage({ src: lightSrc, width: 2560, format: 'webp', quality: 78 });
+const dark = await getImage({ src: darkSrc, width: 1920, format: 'webp', quality: 78 });
+---
+
+<link rel="preload" as="image" href={light.src} />
+<link rel="preload" as="image" href={dark.src} />
+<div class="bg" aria-hidden="true">
+  <div class="bg-layer" data-layer="light" style={`background-image:url("${light.src}")`}></div>
+  <div class="bg-layer" data-layer="dark" style={`background-image:url("${dark.src}")`}></div>
+</div>

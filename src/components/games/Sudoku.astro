@@ -1,0 +1,482 @@
+---
+// Playable Sudoku board. All logic runs in the browser; the engine is
+// imported into the bundled script below. Player name and win counts live
+// in localStorage, so the leaderboard is per browser.
+---
+
+<section class="sudoku" aria-label="Sudoku">
+  <div class="sudoku-bar">
+    <label>
+      Difficulty
+      <select data-difficulty>
+        <option value="easy">Easy</option>
+        <option value="medium" selected>Medium</option>
+        <option value="hard">Hard</option>
+      </select>
+    </label>
+    <button type="button" data-new>New puzzle</button>
+    <span class="sudoku-timer" data-timer>0:00</span>
+  </div>
+
+  <div class="sudoku-board" data-board role="grid" aria-label="Sudoku board"></div>
+
+  <div class="sudoku-pad" data-pad>
+    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <button type="button" data-digit={n}>{n}</button>)}
+    <button type="button" data-digit="0" aria-label="Erase">⌫</button>
+  </div>
+
+  <p class="sudoku-hint">Arrow keys move, digits fill, Backspace clears.</p>
+
+  <p class="sudoku-status" data-status aria-live="polite"></p>
+
+  <div class="sudoku-player">
+    <label>
+      Playing as
+      <input type="text" data-player maxlength="24" placeholder="Your name (optional)" autocomplete="off" />
+    </label>
+    <span class="sudoku-player-note">Add a name and your wins are counted below.</span>
+  </div>
+
+  <div class="sudoku-leaderboard" data-leaderboard hidden>
+    <h2>Leaderboard</h2>
+    <ol data-leaderboard-list></ol>
+  </div>
+</section>
+
+<style is:global>
+  /* Global on purpose: the cells are created by script, so Astro's scoped
+     styles would miss them. Every rule is prefixed with .sudoku. */
+  .sudoku {
+    margin: 1.5rem 0 2.5rem;
+    max-width: 30rem;
+    text-shadow: none;
+  }
+
+  .sudoku-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .sudoku-bar select,
+  .sudoku-bar button,
+  .sudoku-pad button,
+  .sudoku-player input {
+    font: inherit;
+    color: var(--fg);
+    background: var(--scrim);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+  }
+
+  .sudoku-bar select {
+    margin-left: 0.4rem;
+  }
+
+  .sudoku-timer {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+
+  .sudoku-board {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    aspect-ratio: 1;
+    width: 100%;
+    border: 2px solid var(--fg);
+    background: var(--scrim);
+    user-select: none;
+  }
+
+  .sudoku .cell {
+    appearance: none;
+    font: inherit;
+    color: var(--fg);
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(1rem, 4.5vw, 1.5rem);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thick lines between the 3x3 boxes. */
+  .sudoku .cell:nth-child(3n) {
+    border-right-width: 2px;
+    border-right-color: var(--fg);
+  }
+
+  .sudoku .cell:nth-child(9n) {
+    border-right: none;
+  }
+
+  .sudoku .cell:nth-child(n + 19):nth-child(-n + 27),
+  .sudoku .cell:nth-child(n + 46):nth-child(-n + 54) {
+    border-bottom-width: 2px;
+    border-bottom-color: var(--fg);
+  }
+
+  .sudoku .cell.given {
+    font-weight: 600;
+  }
+
+  .sudoku .cell:not(.given) {
+    color: var(--accent);
+  }
+
+  .sudoku .cell.peer {
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+  }
+
+  .sudoku .cell.same {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .sudoku .cell.selected {
+    background: color-mix(in srgb, var(--accent) 32%, transparent);
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .sudoku .cell.conflict {
+    color: #c62828;
+    background: color-mix(in srgb, #c62828 18%, transparent);
+  }
+
+  .sudoku-pad {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 0.3rem;
+    margin-top: 0.75rem;
+  }
+
+  .sudoku-pad button {
+    padding: 0.5rem 0;
+    font-size: 1.1rem;
+  }
+
+  .sudoku-hint {
+    margin: 0.6rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .sudoku-status {
+    margin-top: 0.5rem;
+    min-height: 1.5em;
+    color: var(--accent);
+  }
+
+  .sudoku.solved .sudoku-board {
+    border-color: var(--accent);
+  }
+
+  .sudoku-player {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem 1rem;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px dotted var(--line);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .sudoku-player input {
+    margin-left: 0.4rem;
+    cursor: text;
+    text-transform: none;
+    letter-spacing: normal;
+    width: 13rem;
+    max-width: 100%;
+  }
+
+  .sudoku-player input::placeholder {
+    color: var(--muted);
+  }
+
+  .sudoku-player-note {
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--muted);
+  }
+
+  .sudoku-leaderboard {
+    margin-top: 1.25rem;
+  }
+
+  .sudoku-leaderboard h2 {
+    margin-bottom: 0.4rem;
+  }
+
+  .sudoku-leaderboard ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-width: 22rem;
+  }
+
+  .sudoku-leaderboard li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.35rem 0;
+    border-top: 1px dotted var(--line);
+  }
+
+  .sudoku-leaderboard li.me {
+    color: var(--accent);
+  }
+
+  .sudoku-leaderboard .rank {
+    font-family: var(--font-display);
+    color: var(--muted);
+    min-width: 1.6em;
+  }
+
+  .sudoku-leaderboard .who {
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .sudoku-leaderboard .wins {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+</style>
+
+<script>
+  import { generate, conflicts, isComplete, type Grid, type Difficulty } from '../../games/sudoku/engine';
+
+  const PLAYER_KEY = 'sudoku.player';
+  const WINS_KEY = 'sudoku.wins';
+
+  type Wins = Record<string, number>;
+
+  function loadWins(): Wins {
+    try {
+      const raw = localStorage.getItem(WINS_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveWins(wins: Wins) {
+    try {
+      localStorage.setItem(WINS_KEY, JSON.stringify(wins));
+    } catch {
+      // Storage can be blocked. The game still works; the board just will not persist.
+    }
+  }
+
+  function loadPlayer(): string {
+    try {
+      return localStorage.getItem(PLAYER_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  function savePlayer(name: string) {
+    try {
+      if (name) localStorage.setItem(PLAYER_KEY, name);
+      else localStorage.removeItem(PLAYER_KEY);
+    } catch {
+      // See above.
+    }
+  }
+
+  const root = document.querySelector<HTMLElement>('.sudoku');
+  if (root) {
+    const board = root.querySelector<HTMLElement>('[data-board]')!;
+    const status = root.querySelector<HTMLElement>('[data-status]')!;
+    const timerEl = root.querySelector<HTMLElement>('[data-timer]')!;
+    const select = root.querySelector<HTMLSelectElement>('[data-difficulty]')!;
+    const playerInput = root.querySelector<HTMLInputElement>('[data-player]')!;
+    const leaderboard = root.querySelector<HTMLElement>('[data-leaderboard]')!;
+    const leaderboardList = root.querySelector<HTMLOListElement>('[data-leaderboard-list]')!;
+
+    let given: Grid = [];
+    let grid: Grid = [];
+    let selected = -1;
+    let startedAt = 0;
+    let timer: number | undefined;
+    let solved = false;
+
+    const cells: HTMLButtonElement[] = [];
+    for (let i = 0; i < 81; i++) {
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'cell';
+      cell.setAttribute('role', 'gridcell');
+      cell.addEventListener('click', () => select_(i));
+      board.appendChild(cell);
+      cells.push(cell);
+    }
+
+    function fmt(ms: number): string {
+      const s = Math.floor(ms / 1000);
+      return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }
+
+    function tick() {
+      timerEl.textContent = fmt(Date.now() - startedAt);
+    }
+
+    function playerName(): string {
+      return playerInput.value.trim();
+    }
+
+    function renderLeaderboard() {
+      const wins = loadWins();
+      const rows = Object.entries(wins)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      leaderboard.hidden = rows.length === 0;
+      leaderboardList.replaceChildren(
+        ...rows.map(([name, n], index) => {
+          const li = document.createElement('li');
+          if (name === playerName()) li.classList.add('me');
+          const rank = document.createElement('span');
+          rank.className = 'rank';
+          rank.textContent = String(index + 1).padStart(2, '0');
+          const who = document.createElement('span');
+          who.className = 'who';
+          who.textContent = name;
+          const count = document.createElement('span');
+          count.className = 'wins';
+          count.textContent = n === 1 ? '1 win' : `${n} wins`;
+          li.append(rank, who, count);
+          return li;
+        }),
+      );
+    }
+
+    function recordWin(): number {
+      const name = playerName();
+      if (!name) return 0;
+      const wins = loadWins();
+      wins[name] = (wins[name] ?? 0) + 1;
+      saveWins(wins);
+      renderLeaderboard();
+      return wins[name];
+    }
+
+    function newGame() {
+      const difficulty = select.value as Difficulty;
+      status.textContent = 'Generating…';
+      // Let the status paint before the generator blocks the thread briefly.
+      setTimeout(() => {
+        const p = generate(difficulty);
+        given = p.puzzle;
+        grid = p.puzzle.slice();
+        selected = -1;
+        solved = false;
+        root!.classList.remove('solved');
+        status.textContent = '';
+        startedAt = Date.now();
+        clearInterval(timer);
+        timer = window.setInterval(tick, 1000);
+        tick();
+        render();
+      }, 20);
+    }
+
+    function select_(i: number) {
+      selected = i;
+      render();
+    }
+
+    function place(value: number) {
+      if (selected < 0 || solved || given[selected] !== 0) return;
+      grid[selected] = value;
+      if (isComplete(grid)) {
+        solved = true;
+        clearInterval(timer);
+        root!.classList.add('solved');
+        const time = fmt(Date.now() - startedAt);
+        const total = recordWin();
+        if (total === 0) {
+          status.textContent = `Solved in ${time}.`;
+        } else {
+          status.textContent = `Solved in ${time}. ${playerName()} now has ${total === 1 ? '1 win' : `${total} wins`}.`;
+        }
+      }
+      render();
+    }
+
+    function render() {
+      const bad = conflicts(grid);
+      const selValue = selected >= 0 ? grid[selected] : 0;
+      const selRow = Math.floor(selected / 9);
+      const selCol = selected % 9;
+      const selBox = Math.floor(selRow / 3) * 3 + Math.floor(selCol / 3);
+      for (let i = 0; i < 81; i++) {
+        const cell = cells[i];
+        const v = grid[i];
+        cell.textContent = v === 0 ? '' : String(v);
+        cell.classList.toggle('given', given[i] !== 0);
+        cell.classList.toggle('selected', i === selected);
+        cell.classList.toggle('conflict', bad.has(i));
+        const r = Math.floor(i / 9);
+        const c = i % 9;
+        const b = Math.floor(r / 3) * 3 + Math.floor(c / 3);
+        cell.classList.toggle('peer', selected >= 0 && i !== selected && (r === selRow || c === selCol || b === selBox));
+        cell.classList.toggle('same', selValue !== 0 && v === selValue && i !== selected);
+        cell.tabIndex = i === selected || (selected < 0 && i === 0) ? 0 : -1;
+      }
+      if (selected >= 0) cells[selected].focus({ preventScroll: true });
+    }
+
+    root.querySelector('[data-new]')!.addEventListener('click', newGame);
+    select.addEventListener('change', newGame);
+    root.querySelectorAll<HTMLButtonElement>('[data-digit]').forEach((button) => {
+      button.addEventListener('click', () => place(Number(button.dataset.digit)));
+    });
+
+    playerInput.value = loadPlayer();
+    playerInput.addEventListener('change', () => {
+      playerInput.value = playerName();
+      savePlayer(playerInput.value);
+      renderLeaderboard();
+    });
+    // Typing a digit in the name box should not fill the board.
+    playerInput.addEventListener('keydown', (event) => event.stopPropagation());
+
+    board.addEventListener('keydown', (event) => {
+      if (selected < 0) return;
+      const key = event.key;
+      let next = selected;
+      if (key === 'ArrowUp') next -= 9;
+      else if (key === 'ArrowDown') next += 9;
+      else if (key === 'ArrowLeft') next -= 1;
+      else if (key === 'ArrowRight') next += 1;
+      else if (key >= '1' && key <= '9') return place(Number(key));
+      else if (key === 'Backspace' || key === 'Delete' || key === '0') return place(0);
+      else return;
+      event.preventDefault();
+      if (next >= 0 && next < 81) select_(next);
+    });
+
+    renderLeaderboard();
+    newGame();
+  }
+</script>

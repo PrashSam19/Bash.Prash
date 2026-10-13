@@ -1,43 +1,63 @@
-# Astro Starter Kit: Minimal
+# prashanth-site
 
-```sh
-npm create astro@latest -- --template minimal
+Personal site of Prashanth Sampathkumar. Built with [Astro](https://astro.build),
+hosted on Netlify.
+
+## Run locally
+
+```bash
+npm install
+npm run dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+Open the URL it prints, usually http://localhost:4321.
 
-## 🚀 Project Structure
+## Where things live
 
-Inside of your Astro project, you'll see the following folders and files:
+| What | Where |
+|---|---|
+| Name, tagline, nav order, links | `src/data/site.ts` |
+| About and Now pages | `src/pages/about.astro`, `src/pages/now.astro` |
+| Games, Tools, Playground entries | `src/content/<section>/*.md` |
+| Background photos | `src/assets/bg-light.jpg`, `src/assets/bg-dark.jpg` |
+| Theme toggle icon source | `src/assets/toggle-koi.png` (ink mask; the source photo lives in `PrashPics/`, which is not committed) |
+| About page headshot | `src/assets/headshot.jpg` |
+| Playable games | `src/components/games/` (UI) and `src/games/` (logic) |
+| Colors, type, layout | `src/styles/global.css` |
 
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+## Adding an entry
+
+Create a markdown file in `src/content/games/`, `src/content/tools/`, or
+`src/content/playground/`. The file name becomes the URL. Frontmatter:
+
+```yaml
+---
+title: Snake
+summary: One sentence shown in the list.
+status: idea        # idea | building | live
+order: 1            # lower sorts first
+repo: https://github.com/PrashSam19/sudoku  # optional
+demo: https://snake.example.com             # optional
+tags: [canvas, javascript]                  # optional
+---
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+Anything below the frontmatter is the page body.
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+## Background photos
 
-Any static assets, like images, can be placed in the `public/` directory.
+One photo per theme: `src/assets/bg-light.jpg` and `src/assets/bg-dark.jpg`.
+Replace the files to change them. Both are resized and converted to WebP at
+build time and both load up front, so the toggle crossfades instantly.
 
-## 🧞 Commands
+## Playable games
 
-All commands are run from the root of the project, from a terminal:
+Add `play: sudoku` to a game's frontmatter to render the Sudoku board above
+its write-up. Players can enter a name; wins are counted per browser in
+localStorage and shown in a leaderboard under the board. New games register in `src/components/games/index.ts`. Engine
+tests run with `npm test`.
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+## Deploy
 
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+Push to GitHub, then in Netlify choose "Import an existing project" and pick
+the repo. `netlify.toml` already sets the build command and output folder.

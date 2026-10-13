@@ -1,16 +1,22 @@
 ---
+import Base from '../layouts/Base.astro';
+import { site, nav } from '../data/site';
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<Base compactHeader={false}>
+  <div class="home">
+    <h1>{site.name}</h1>
+    <p class="tagline">{site.tagline}</p>
+    <ol class="sections">
+      {
+        nav.map((item) => (
+          <li>
+            <a href={item.href}>{item.title}</a>
+            <span class="leader" aria-hidden="true" />
+            <p class="blurb">{item.blurb}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</Base>
