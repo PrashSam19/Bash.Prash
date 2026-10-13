@@ -1,0 +1,40 @@
+---
+// One template renders the Games, Tools, and Playground index pages.
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { collectionSections, type SectionKey } from '../../data/site';
+
+export function getStaticPaths() {
+  return (Object.keys(collectionSections) as SectionKey[]).map((section) => ({
+    params: { section },
+  }));
+}
+
+const section = Astro.params.section as SectionKey;
+const meta = collectionSections[section];
+const entries = (await getCollection(section)).sort(
+  (a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title),
+);
+---
+
+<Base title={meta.title} description={meta.blurb}>
+  <h1>{meta.title}</h1>
+  <p class="muted">{meta.blurb}</p>
+  {
+    entries.length === 0 ? (
+      <p>Nothing here yet.</p>
+    ) : (
+      <ul class="entries">
+        {entries.map((entry) => (
+          <li>
+            <a href={`/${section}/${entry.id}/`}>{entry.data.title}</a>
+            <span class="status" data-status={entry.data.status}>
+              {entry.data.status}
+            </span>
+            <p class="summary">{entry.data.summary}</p>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</Base>

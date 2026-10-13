@@ -1,0 +1,458 @@
+/* Design tokens. Light is the default; dark overrides below. */
+:root {
+  --bg: #f1ede4;
+  --fg: #1c1b19;
+  --muted: #5f5a51;
+  --accent: #a8431f;
+  --line: rgba(28, 27, 25, 0.28);
+  --scrim: rgba(241, 237, 228, 0.86);
+  --scrim-soft: rgba(241, 237, 228, 0.35);
+  --glow: rgba(241, 237, 228, 0.6);
+  --font-body: "EB Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --font-display: "Rubik Distressed", Impact, "Arial Black", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e0e10;
+  --fg: #ece7dc;
+  --muted: #a39d92;
+  --accent: #f0a46d;
+  --line: rgba(236, 231, 220, 0.3);
+  --scrim: rgba(14, 14, 16, 0.84);
+  --scrim-soft: rgba(14, 14, 16, 0.4);
+  --glow: rgba(14, 14, 16, 0.6);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 19px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  text-shadow: 0 0 14px var(--glow), 0 0 3px var(--glow);
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.1;
+  margin: 0 0 0.5em;
+  font-weight: 400;
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  letter-spacing: 0.01em;
+}
+
+h2 {
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Page structure. A left-aligned column, like a page in a book. */
+.wrap {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0;
+  padding: 0 16px;
+}
+
+@media (min-width: 700px) {
+  .wrap {
+    padding: 0 clamp(32px, 7vw, 96px);
+  }
+}
+
+.site-header,
+main,
+.site-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.site-header {
+  padding: 1.5rem 0 0.5rem;
+}
+
+.site-header .name {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  text-decoration: none;
+}
+
+.site-header nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.site-header nav a {
+  text-decoration: none;
+}
+
+.site-header nav a[aria-current="page"] {
+  color: var(--accent);
+}
+
+main {
+  flex: 1;
+  padding: 1.5rem 0 3rem;
+}
+
+.site-footer {
+  padding: 1rem 0 1.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.site-footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  /* Keep footer text clear of the fixed koi toggle. */
+  padding-right: clamp(100px, 14vw, 160px);
+}
+
+.site-footer a {
+  text-decoration: none;
+}
+
+/* Home page: name, tagline, and a numbered table of contents. */
+.home {
+  padding-top: clamp(1rem, 8vh, 5rem);
+}
+
+.home h1 {
+  font-size: clamp(3rem, 9vw, 5.5rem);
+  line-height: 0.95;
+  margin-bottom: 0.3em;
+}
+
+.home .tagline {
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 3rem;
+}
+
+.sections {
+  list-style: none;
+  counter-reset: section;
+  padding: 0;
+  margin: 0;
+  max-width: 32rem;
+}
+
+.sections li {
+  counter-increment: section;
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  padding: 0.7rem 0;
+}
+
+.sections li::before {
+  content: counter(section, decimal-leading-zero);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.sections a {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 1.05rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sections .leader {
+  flex: 1;
+  border-bottom: 1px dotted var(--line);
+  transform: translateY(-0.35em);
+  min-width: 1.5rem;
+}
+
+.sections .blurb {
+  margin: 0;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .sections li {
+    flex-wrap: wrap;
+    row-gap: 0.1rem;
+  }
+
+  .sections .leader {
+    display: none;
+  }
+
+  .sections .blurb {
+    flex-basis: 100%;
+    padding-left: 2.5rem;
+    text-align: left;
+  }
+}
+
+/* Entry lists inside Games, Tools, Playground. */
+.entries {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0 0;
+  max-width: 40rem;
+}
+
+.entries li {
+  padding: 0.9rem 0;
+  border-top: 1px dotted var(--line);
+}
+
+.entries a {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.entries .summary {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.status {
+  display: inline-block;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  text-shadow: none;
+}
+
+.status[data-status="live"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.entry-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.entry-meta a {
+  margin-right: 1rem;
+}
+
+.prose {
+  max-width: 38rem;
+}
+
+.prose :is(h2, h3) {
+  margin-top: 1.75em;
+}
+
+.prose img {
+  max-width: 100%;
+  height: auto;
+}
+
+.prose code {
+  font-size: 0.85em;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.prose pre {
+  overflow-x: auto;
+  padding: 1rem;
+  border-radius: 6px;
+  text-shadow: none;
+}
+
+/* About page portrait. */
+.portrait {
+  width: min(220px, 45vw);
+  height: auto;
+  border-radius: 50%;
+  display: block;
+  margin: 0 0 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+@media (min-width: 700px) {
+  .about-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .about-grid .portrait {
+    margin: 0.4rem 0 0;
+  }
+}
+
+/* Theme toggle: the koi ink mask tinted with the current text color. */
+.theme-toggle {
+  position: fixed;
+  right: clamp(12px, 3vw, 40px);
+  bottom: clamp(12px, 3vw, 32px);
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  line-height: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  transition: transform 300ms ease;
+}
+
+.theme-toggle:hover {
+  transform: rotate(-12deg) scale(1.06);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+.theme-toggle .koi {
+  display: inline-block;
+  width: clamp(72px, 9vw, 112px);
+  height: clamp(72px, 9vw, 112px);
+  background-color: var(--fg);
+  opacity: 0.92;
+  -webkit-mask: var(--koi) center / contain no-repeat;
+  mask: var(--koi) center / contain no-repeat;
+}
+
+/* On the light photo the dark koi can sink into busy areas. A faint pale halo
+   lifts it off the background without changing its look. Dark mode is left as is. */
+:root:not([data-theme="dark"]) .theme-toggle {
+  filter: drop-shadow(0 0 5px var(--glow)) drop-shadow(0 0 1px var(--glow)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+}
+
+:root:not([data-theme="dark"]) .theme-toggle .koi {
+  opacity: 1;
+}
+
+/* Background layers. Both load up front; the theme decides which shows. */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--bg);
+}
+
+.bg-layer {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transition: opacity 900ms ease;
+}
+
+.bg-layer[data-layer="light"] {
+  opacity: 1;
+}
+
+.bg-layer[data-layer="dark"] {
+  opacity: 0;
+}
+
+:root[data-theme="dark"] .bg-layer[data-layer="light"] {
+  opacity: 0;
+}
+
+:root[data-theme="dark"] .bg-layer[data-layer="dark"] {
+  opacity: 1;
+}
+
+/* A scrim that is solid behind the text column and fades into the photo. */
+.bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    var(--scrim) 0%,
+    var(--scrim) 42%,
+    var(--scrim-soft) 68%,
+    transparent 100%
+  );
+  transition: background 900ms ease;
+}
+
+@media (max-width: 700px) {
+  .bg::after {
+    background: var(--scrim);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-layer,
+  .theme-toggle {
+    transition: none;
+  }
+}

@@ -1,0 +1,32 @@
+---
+// The koi illustration, reduced to an ink mask and tinted with the current
+// text color, so it sits on any background like a tattoo. Its light and
+// dark halves swap when the theme flips.
+import koi from '../assets/toggle-koi.png';
+---
+
+<button
+  class="theme-toggle"
+  type="button"
+  data-theme-toggle
+  aria-label="Toggle light or dark mode"
+  title="Toggle light or dark mode"
+  style={`--koi:url("${koi.src}")`}
+>
+  <span class="koi"></span>
+</button>
+
+<script>
+  const root = document.documentElement;
+  document.querySelectorAll<HTMLButtonElement>('[data-theme-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = next;
+      try {
+        localStorage.setItem('theme', next);
+      } catch {
+        // Storage can be blocked in private windows. The toggle still works for this page.
+      }
+    });
+  });
+</script>

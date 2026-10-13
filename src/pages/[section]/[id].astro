@@ -1,0 +1,44 @@
+---
+// One template renders every entry page across the three collections.
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { collectionSections, type SectionKey } from '../../data/site';
+import { games } from '../../components/games';
+
+export async function getStaticPaths() {
+  const sections = Object.keys(collectionSections) as SectionKey[];
+  const paths = [];
+  for (const section of sections) {
+    const entries = await getCollection(section);
+    for (const entry of entries) {
+      paths.push({ params: { section, id: entry.id }, props: { entry, section } });
+    }
+  }
+  return paths;
+}
+
+const { entry, section } = Astro.props;
+const { Content } = await render(entry);
+const sectionMeta = collectionSections[section as SectionKey];
+const Play = entry.data.play ? games[entry.data.play] : null;
+---
+
+<Base title={entry.data.title} description={entry.data.summary}>
+  <p class="muted">
+    <a href={`/${section}/`}>{sectionMeta.title}</a>
+  </p>
+  <h1>
+    {entry.data.title}
+    <span class="status" data-status={entry.data.status}>{entry.data.status}</span>
+  </h1>
+  <p class="muted">{entry.data.summary}</p>
+  <p class="entry-meta">
+    {entry.data.demo && <a href={entry.data.demo}>Try it</a>}
+    {entry.data.repo && <a href={entry.data.repo}>Source</a>}
+    {entry.data.tags.length > 0 && <span>{entry.data.tags.join(' · ')}</span>}
+  </p>
+  {Play && <Play />}
+  <div class="prose">
+    <Content />
+  </div>
+</Base>

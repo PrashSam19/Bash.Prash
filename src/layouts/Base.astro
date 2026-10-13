@@ -1,0 +1,91 @@
+---
+// The shell every page shares: head, theme bootstrap, background, header,
+// main content, and footer with the theme toggle.
+import '../styles/global.css';
+import Background from '../components/Background.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import { site, nav } from '../data/site';
+
+interface Props {
+  title?: string;
+  description?: string;
+  // The home page draws its own header, so it opts out of the compact one.
+  compactHeader?: boolean;
+}
+
+const { title, description = site.description, compactHeader = true } = Astro.props;
+const pageTitle = title ? `${title} · ${site.name}` : site.name;
+const path = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Rubik+Distressed&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+    />
+    <script is:inline>
+      // Runs before paint. Applies the saved theme, or the system preference.
+      (function () {
+        try {
+          var theme = localStorage.getItem('theme');
+          if (theme !== 'light' && theme !== 'dark') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <Background />
+
+    {
+      compactHeader && (
+        <header class="site-header">
+          <div class="wrap">
+            <a class="name" href="/">{site.name}</a>
+            <nav aria-label="Sections">
+              <ul>
+                {nav.map((item) => (
+                  <li>
+                    <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>
+                      {item.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
+        </header>
+      )
+    }
+
+    <main>
+      <div class="wrap">
+        <slot />
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>
+          <a href={site.github}>GitHub</a> · <a href={site.linkedin}>LinkedIn</a>
+        </span>
+        <ThemeToggle />
+      </div>
+    </footer>
+  </body>
+</html>
