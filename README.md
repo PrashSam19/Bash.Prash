@@ -1,7 +1,6 @@
-# prashanth-site
+# Welcome to Prash-Cache
 
-Personal site of Prashanth Sampathkumar. Built with [Astro](https://astro.build),
-hosted on Netlify.
+This is my personal site which I built with [Astro](https://astro.build), Claude, and hosted on Netlify.
 
 ## Run locally
 
