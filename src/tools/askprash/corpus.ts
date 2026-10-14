@@ -31,6 +31,8 @@ export function pageText(html: string, href: string): CorpusDoc | null {
       .replace(/<(script|style|svg|noscript|canvas|template)\b[\s\S]*?<\/\1>/gi, ' ')
       // Buttons and form controls are game UI, not content.
       .replace(/<(button|select|textarea)\b[\s\S]*?<\/\1>/gi, ' ')
+      // Status badges ("live", "building") read as stray words mid-sentence.
+      .replace(/<span class="status"[^>]*>[\s\S]*?<\/span>/gi, ' ')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/(p|h[1-6]|li|div|section|ol|ul|blockquote|pre|tr)>/gi, '\n')
       .replace(/<[^>]+>/g, ' '),

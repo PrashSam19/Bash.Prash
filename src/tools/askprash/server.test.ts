@@ -13,7 +13,7 @@ const corpus: CorpusDoc[] = [
 const page = pageText(
   `<html><head><title>About · Prashanth Sampathkumar</title></head><body><nav>Skip me</nav><main><h1>About</h1>
    <p>Hello &amp; welcome, G&#39;s.</p><script>alert(1)</script><style>p{}</style><button>Click</button>
-   <ul><li>One</li><li>Two</li></ul></main></body></html>`,
+   <ul><li>One <span class="status" data-status="live">live</span></li><li>Two</li></ul></main></body></html>`,
   '/about/',
 )!;
 assert.equal(page.title, 'About');
@@ -58,6 +58,7 @@ assert.deepEqual(first.map((b) => b.type), ['document', 'document', 'text'], 'pa
 assert.deepEqual(first.map((b) => !!b.cache_control), [false, true, false], 'one cache breakpoint after the last page');
 assert.equal(req.messages[2].content, 'what games?');
 for (const line of SNARK) assert.ok(SYSTEM.includes(line), 'every snark line is in the prompt');
+assert.ok(!JSON.stringify(req).includes('citations'), 'API citations stay off; they made Haiku quote pages');
 
 // Cost math: 1M of each kind at Haiku 5.5 rates.
 assert.equal(costUsd({ input_tokens: 1e6 }), 0.1);
@@ -79,21 +80,16 @@ function fakeClient(events: Ev[], seen: unknown[] = []) {
     },
   } as any;
 }
-const cite = (document_index: number) => ({
-  type: 'content_block_delta',
-  index: 0,
-  delta: { type: 'citations_delta', citation: { type: 'char_location', cited_text: '...', document_index, document_title: null } },
-});
 const text = (t: string) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } });
 const answer: Ev[] = [
   { type: 'message_start', message: { usage: { input_tokens: 40, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 2000 } } },
   { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
   text('I studied CS at UGA. '),
-  cite(0),
-  text('And I rebuild games.'),
-  cite(1),
-  cite(0),
-  cite(99),
+  text('And I rebuild games [for fun].\n'),
+  // The marker arrives split across pieces; unknown and repeated paths are dropped.
+  text('\n['),
+  text('[sources: /about/ /games/'),
+  text(' /nope/ /about/]]'),
   { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 30, input_tokens: null } },
   { type: 'message_stop' },
 ];
@@ -124,17 +120,21 @@ try {
   assert.equal((await handle(post({ history: [a('hi')] }), { env, corpus, client: fakeClient(answer) })).status, 400);
   assert.equal((await handle(post('x'.repeat(40_000)), { env, corpus, client: fakeClient(answer) })).status, 413);
 
-  // A streamed answer: text pieces, then each cited page once, unknown pages dropped.
+  // A streamed answer: the text without the sources line, then each named page once.
   const seen: unknown[] = [];
   const res = await handle(post({ history: [q('who are you?')] }), { env, corpus, client: fakeClient(answer, seen) });
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type')!, /ndjson/);
-  assert.deepEqual(await events(res), [
-    { type: 'text', text: 'I studied CS at UGA. ' },
+  const streamed = await events(res);
+  assert.equal(
+    streamed.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text).join(''),
+    'I studied CS at UGA. And I rebuild games [for fun].',
+  );
+  assert.deepEqual(streamed.filter((e) => e.type === 'source'), [
     { type: 'source', href: '/about/', title: 'About' },
-    { type: 'text', text: 'And I rebuild games.' },
     { type: 'source', href: '/games/', title: 'Games' },
   ]);
+  assert.ok(streamed.filter((e) => e.type === 'text').length > 1, 'text still streams in pieces');
   assert.equal(seen.length, 1);
   assert.match(logs.at(-1)!, /in=40 out=30 cache_w=0 cache_r=2000 cost=\$0\.00004/);
   assert.ok(!logs.at(-1)!.includes('who are you'), 'the question itself is not logged');
@@ -164,7 +164,7 @@ try {
   const viaHandler: typeof fetch = (url, init) => handle(new Request(String(url), init), { env, corpus, client: fakeClient(answer) });
   const got: ReplyEvent[] = [];
   for await (const e of httpBackend('http://x/api/ask-prash', viaHandler).reply([q('hi')])) got.push(e);
-  assert.equal(got.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text).join(''), 'I studied CS at UGA. And I rebuild games.');
+  assert.equal(got.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text).join(''), 'I studied CS at UGA. And I rebuild games [for fun].');
   const off: typeof fetch = (url, init) => handle(new Request(String(url), init), { env: {}, corpus });
   const offEvents: ReplyEvent[] = [];
   for await (const e of httpBackend('http://x/api/ask-prash', off).reply([q('hi')])) offEvents.push(e);
@@ -175,3 +175,19 @@ try {
 }
 
 console.log('all ask prash server tests passed');
+
+// A reply with no sources line, or one ending on a lone "[", loses nothing.
+{
+  const { replyEvents } = await import('./server.ts');
+  const run = async (pieces: string[]) => {
+    const out: ReplyEvent[] = [];
+    const stream = (async function* () {
+      for (const p of pieces) yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: p } } as any;
+    })();
+    for await (const e of replyEvents(stream, corpus, { usage: {}, stopReason: null })) out.push(e);
+    return out.map((e) => (e.type === 'text' ? e.text : `<${e.type}>`)).join('');
+  };
+  assert.equal(await run(['Hahahaha ', 'get a job.']), 'Hahahaha get a job.');
+  assert.equal(await run(['arrays look like [', '1, 2]']), 'arrays look like [1, 2]');
+  assert.equal(await run(['ends with [']), 'ends with [');
+}
