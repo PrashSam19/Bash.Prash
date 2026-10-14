@@ -15,6 +15,10 @@ import {
   ORES,
   BUILDINGS,
   SAVE_STATION,
+  CEILING_ROW,
+  FLOOR_ROW,
+  FLOOR_Y,
+  BOSS_SIZE,
   oreFor,
   tileAt,
   isSolid,
@@ -26,6 +30,7 @@ import {
   type Tile,
   type Pod,
 } from './engine.ts';
+import { drawHellRock, drawHellBackdrop, drawBoss, drawLaser, drawFireball } from './hell-art.ts';
 
 export const VIEW_W = 512;
 export const VIEW_H = 384;
@@ -488,6 +493,11 @@ class SpriteCache {
     const band = bandFor(tx, ty);
     switch (tile) {
       case T.BEDROCK:
+        // Hell's ceiling and floor are basalt shot through with fire.
+        if (ty === CEILING_ROW || ty === FLOOR_ROW) {
+          const ceiling = ty === CEILING_ROW;
+          return this.get(`hell${ceiling}.${variant}`, (g) => drawHellRock(g, variant, ceiling));
+        }
         return this.get('bedrock', drawBedrock);
       case T.CONCRETE:
         // Only the top pad row shows as a slab; the one below looks like dirt.
@@ -1033,6 +1043,8 @@ interface Particle {
   // Debris is a solid colour; puffs are an "r,g,b" triple so they can fade.
   color: string;
   puff: boolean;
+  // Embers drift up and fade instead of falling.
+  ember?: boolean;
 }
 
 interface FloatText {
@@ -1056,9 +1068,12 @@ export interface Renderer {
   burst(tx: number, ty: number, radius: number, kind: BurstKind): void;
   /** Shake the screen, as in a marsquake. */
   shake(seconds: number): void;
+  /** Show the damage an explosive did to the boss, over his head. */
+  bossHit(game: Game, amount: number): void;
 }
 
-export function createRenderer(canvas: HTMLCanvasElement): Renderer {
+/** `face` is Dr. Prash's photo, worn by the boss once it has loaded. */
+export function createRenderer(canvas: HTMLCanvasElement, face: HTMLImageElement | null = null): Renderer {
   const ctx = canvas.getContext('2d')!;
   const sprites = new SpriteCache();
   const particles: Particle[] = [];
@@ -1067,6 +1082,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   let puffTimer = 0;
   let flash = 0;
   let shaking = 0;
+  let emberTimer = 0;
+  let boomTimer = 0;
 
   function target(pod: Pod) {
     const x = pod.x + POD_W / 2 - VIEW_W / 2;
@@ -1092,8 +1109,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   }
 
   function burst(tx: number, ty: number, radius: number, kind: BurstKind) {
-    const cx = (tx + 0.5) * TILE;
-    const cy = (ty + 0.5) * TILE;
+    burstAt((tx + 0.5) * TILE, (ty + 0.5) * TILE, radius, kind);
+  }
+
+  function burstAt(cx: number, cy: number, radius: number, kind: BurstKind) {
     const colors = {
       lava: ['#ff6a1a', '#ffb02e', '#d32a10'],
       gas: ['#8dff5a', '#3fc93a', '#e2ffc0'],
@@ -1145,14 +1164,22 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // The sky goes to night as soon as you head underground, as in the original.
     const dark = Math.min(1, depthFeet(game.pod) / 30);
     if (cy < SURFACE_Y) drawSky(ctx, cy, dark);
+    drawHellBackdrop(ctx, cx, cy, VIEW_W, VIEW_H, time);
     drawTiles(game, cx, cy);
     if (cy < SURFACE_Y + 10) drawSurface(cx, cy, time);
     drawDigProgress(game, cx, cy);
+    hellEffects(game, cx, cy, dt);
     updateParticles(game, dt);
     drawParticles(cx, cy, false);
+    const boss = game.boss;
+    if (boss) {
+      drawBoss(ctx, boss, boss.x - cx, FLOOR_Y - cy, time, face);
+      for (const f of boss.fireballs) drawFireball(ctx, f, f.x - cx, f.y - cy, time);
+    }
     const px = Math.round(game.pod.x * SCALE) / SCALE - cx;
     const py = Math.round(game.pod.y * SCALE) / SCALE - cy;
     drawPod(ctx, game.pod, px, py, time);
+    if (boss) drawLaser(ctx, boss, cx, cy, time);
     drawParticles(cx, cy, true);
     drawLabels(cx, cy, dt);
     if (flash > 0) {
@@ -1171,6 +1198,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     // The sky counts as open, so surface tunnels round off toward it too.
     const solid = (tx: number, ty: number) => ty >= SKY_ROWS && isSolid(tileAt(w, tx, ty));
     for (let ty = y0; ty <= y1; ty++) {
+      // The open arena is the backdrop, already drawn.
+      if (ty > CEILING_ROW && ty < FLOOR_ROW) continue;
       for (let tx = x0; tx <= x1; tx++) {
         const tile = tileAt(w, tx, ty);
         const sx = tx * TILE - cx;
@@ -1180,7 +1209,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
           ctx.drawImage(sprites.tile(tile, tx, ty), sx, sy, TILE, TILE);
           // Round off dirt corners that poke out into a tunnel.
           for (const [dx, dy] of CORNERS) {
-            if (ty + dy < SKY_ROWS) continue;
+            if (ty + dy < SKY_ROWS || ty >= CEILING_ROW) continue;
             if (!solid(tx + dx, ty) && !solid(tx, ty + dy) && !solid(tx + dx, ty + dy)) {
               cornerPatch(sx, sy, dx, dy, () => {
                 ctx.fillStyle = tunnel;
@@ -1194,7 +1223,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         ctx.fillStyle = tunnel;
         ctx.fillRect(sx, sy, TILE, TILE);
         for (const [dx, dy] of CORNERS) {
-          if (solid(tx + dx, ty) && solid(tx, ty + dy)) {
+          if (ty < CEILING_ROW && solid(tx + dx, ty) && solid(tx, ty + dy)) {
             const sprite = sprites.dirt(tx + dx, ty);
             cornerPatch(sx, sy, dx, dy, () => ctx.drawImage(sprite, sx, sy, TILE, TILE));
           }
@@ -1230,6 +1259,46 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     }
     const s = SAVE_STATION;
     drawSaveStation(ctx, ((s.x0 + s.x1 + 1) / 2) * TILE - cx, ((s.y0 + s.y1 + 1) / 2) * TILE - cy, time);
+  }
+
+  /** Embers rising off Hell's floor, sparks off fireballs, and the boss's death throes. */
+  function hellEffects(game: Game, cx: number, cy: number, dt: number) {
+    if (FLOOR_Y - cy > VIEW_H + 20) return;
+    emberTimer -= dt;
+    while (emberTimer <= 0) {
+      emberTimer += 0.06;
+      emit({
+        x: cx + Math.random() * VIEW_W,
+        y: FLOOR_Y - 2,
+        vx: (Math.random() - 0.5) * 20,
+        vy: -30 - Math.random() * 50,
+        life: 1.5 + Math.random() * 1.5,
+        size: 1 + Math.random(),
+        color: Math.random() < 0.5 ? '#ff7a2a' : '#ffc04a',
+        puff: false,
+        ember: true,
+      });
+    }
+    const boss = game.boss;
+    if (!boss) return;
+    for (const f of boss.fireballs) {
+      emit({ x: f.x, y: f.y, vx: (Math.random() - 0.5) * 30, vy: -10 - Math.random() * 30, life: 0.4, size: 2, color: '#ffb02e', puff: false, ember: true });
+    }
+    if (boss.move === 'dying' || boss.move === 'sinking') {
+      boomTimer -= dt;
+      if (boomTimer <= 0) {
+        boomTimer = boss.move === 'dying' ? 0.14 : 0.3;
+        const size = BOSS_SIZE[boss.form];
+        burstAt(boss.x + (Math.random() - 0.5) * size.w * 2, FLOOR_Y - Math.random() * size.h, 0.6, boss.move === 'dying' ? 'blast' : 'lava');
+        if (boss.move === 'dying') shaking = Math.max(shaking, 0.2);
+      }
+    }
+  }
+
+  function bossHit(game: Game, amount: number) {
+    const boss = game.boss;
+    if (!boss) return;
+    labels.push({ text: `-${amount}`, color: '#ffffff', x: boss.x, y: FLOOR_Y - BOSS_SIZE[boss.form].h - 8, life: FLOAT_LIFE });
   }
 
   function drawDigProgress(game: Game, cx: number, cy: number) {
@@ -1288,7 +1357,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         particles.splice(i, 1);
         continue;
       }
-      if (!p.puff) p.vy += 600 * dt;
+      if (!p.puff && !p.ember) p.vy += 600 * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
     }
@@ -1303,8 +1372,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         circle(ctx, p.x - cx, p.y - cy, p.size + k * 7);
         ctx.fill();
       } else {
+        if (p.ember) ctx.globalAlpha = Math.min(1, p.life / p.max * 1.5);
         ctx.fillStyle = p.color;
         ctx.fillRect(p.x - cx, p.y - cy, p.size, p.size);
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -1330,5 +1401,5 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
     shaking = seconds;
   }
 
-  return { draw, reset, floatText, burst, shake };
+  return { draw, reset, floatText, burst, shake, bossHit };
 }

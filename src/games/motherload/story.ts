@@ -3,7 +3,7 @@
 // $25,000 bonuses), but the words are our own, and the mining company is run
 // by one Dr. Prash. Who is definitely just a nice man with a mining company.
 
-export type Speaker = 'prash' | 'unknown' | 'pod3422' | 'pod10043';
+export type Speaker = 'prash' | 'devil' | 'unknown' | 'pod3422' | 'pod10043';
 
 export interface Transmission {
   id: string;
@@ -17,6 +17,7 @@ export interface Transmission {
 
 export const SPEAKERS: Record<Speaker, string> = {
   prash: 'Dr. Prash, Prash Mining Co.',
+  devil: 'Dr. Prash, Prince of Darkness',
   unknown: 'Unidentified Source',
   pod3422: 'Martian Digging Pod #3422-2',
   pod10043: 'Martian Digging Pod #10043',
@@ -122,6 +123,46 @@ export const TRANSMISSIONS: Transmission[] = [
       "...Fine. Keep digging. I'll be waiting.",
     ],
   },
+  // Hell. These two play every time the fight starts over, so they're never
+  // marked as received.
+  {
+    id: 'reveal',
+    from: 'devil',
+    lines: [
+      "Well, well, well. Someone can't follow simple instructions.",
+      "Since you came all this way, a confession: the missing miners? Me. 3422-2's retirement dome on Europa? Never happening. Also me. The red eyes everyone kept screaming about? Believe it or not, also me.",
+      "Prash Mining Co. was never about minerals. It was about luring the greedy down to my front door. And here you are, cargo bay and all.",
+      "Consider this your final performance review. Spoiler: you're fired. Out of a cannon. Into lava.",
+    ],
+  },
+  {
+    id: 'trueForm',
+    from: 'devil',
+    lines: [
+      'OW. That was a very expensive lab coat.',
+      "Enough with the human disguise. It itches anyway. Behold my TRUE form: Dr. Prash, PhD in Evil, Chief Executive of Eternal Suffering, master of ALL that is EVIL!",
+      "Also, I'm docking your pay.",
+    ],
+  },
 ];
 
 export const transmission = (id: string) => TRANSMISSIONS.find((t) => t.id === id);
+
+// What's left of Dr. Prash after the fight, as on the original's victory
+// screen. Together they're worth $28,500,000; the split isn't documented, so
+// only the total is shown.
+export const SPOILS = [
+  "Dr. Prash's Kevlar Lab Coat",
+  "Dr. Prash's Staff of Hell",
+  "Dr. Prash's Laser Monocle",
+  "Satan's Hooves",
+  "Satan's Horns",
+  "Satan's Evil Eye (right)",
+  "Satan's Evil Eye (left)",
+  "Satan's Boiler of Eternal Infernos",
+  'Martian Reward for Restoring Peace',
+  '250,000 Shares of Prash Mining Co.',
+];
+
+export const VICTORY =
+  "Dr. Prash is no more. The miners of Mars are safe, the shops are still fully automated, and nobody has to call you \"recruit\" ever again. Prash Mining Co.'s board voted unanimously to hand you everything he left behind, mostly because he isn't in a position to object.";

@@ -8,7 +8,7 @@ import headshot from '../assets/headshot.jpg';
   <h1>About</h1>
   <div class="about-grid">
     <Image class="portrait" src={headshot} width={440} alt="Prashanth Sampathkumar" />
-    <div class="prose">
+    <div class="prose cascade">
       <!-- TODO: placeholder copy. Rewrite in your own voice. -->
       <p>
         Ahhhhh I guess if you've come this far I can tell you what I'm up to G. I've been growing as a web developer and AI engineer after completing my bachelors in computer science at the
@@ -27,3 +27,23 @@ import headshot from '../assets/headshot.jpg';
     </div>
   </div>
 </Base>
+
+<style>
+  /* On wide screens the paragraphs widen as they go down, their right edge
+     following a diagonal from the top of the text toward the lower right.
+     An invisible triangle floated in the top-right corner does the shaping. */
+  @media (min-width: 1000px) {
+    .cascade {
+      max-width: none;
+      width: calc(100vw - clamp(32px, 7vw, 96px) - 220px - 2.5rem - clamp(80px, 8vw, 160px));
+    }
+
+    .cascade::before {
+      content: '';
+      float: right;
+      width: calc(100% - 34rem);
+      height: var(--cascade-h, 20rem);
+      shape-outside: polygon(0 0, 100% 0, 100% 100%);
+    }
+  }
+</style>

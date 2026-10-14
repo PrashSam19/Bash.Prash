@@ -38,6 +38,18 @@ import {
   canUseItem,
   marsquake,
   receive,
+  mulberry32,
+  GROUND_ROWS,
+  CEILING_ROW,
+  FLOOR_ROW,
+  FLOOR_Y,
+  HELL_GAP_COL,
+  BOSS_HP,
+  BOSS_REWARD,
+  FIREBALL_R,
+  inHell,
+  monocle,
+  sweepLine,
   type Game,
   type Input,
   type Tile,
@@ -360,6 +372,296 @@ const podCol = (g: Game) => Math.floor((g.pod.x + POD_W / 2) / TILE);
   marsquake(game, 999);
   assert.notDeepEqual(game.world.tiles, before, 'a marsquake rebuilds the underground');
   console.log('surface ok');
+}
+
+// --- Hell ---------------------------------------------------------------------
+
+/** A pod parked on Hell's floor at `col`, with the fight not yet started. */
+function hellGame(col = 25): Game {
+  const game = newGame(1);
+  game.upgrades = { drill: 6, hull: 6, engine: 6, tank: 6, radiator: 5, cargo: 0 };
+  const s = stats(game);
+  game.fuel = s.maxFuel;
+  game.hull = s.maxHull;
+  game.items = { fuel: 20, nanobots: 60, dynamite: 10, c4: 60, quantum: 0, matter: 1 };
+  // The shaft the pod dug down to the gap.
+  for (let y = CEILING_ROW - 6; y < CEILING_ROW; y++) setTile(game.world, HELL_GAP_COL, y, T.AIR);
+  game.pod.x = col * TILE + (TILE - POD_W) / 2;
+  game.pod.y = FLOOR_Y - POD_H;
+  game.pod.onGround = true;
+  return game;
+}
+
+/** Starts the fight and freezes him in place until a test moves him. */
+function startFight(game: Game) {
+  const events = step(game, idle, DT);
+  assert.ok(game.boss, 'the fight starts');
+  game.boss.rand = mulberry32(5);
+  game.boss.move = 'idle';
+  game.boss.dur = 999;
+  return events;
+}
+
+const podCx = (g: Game) => g.pod.x + POD_W / 2;
+
+/** Puts him right at the pod's feet, or `dx` pixels away, with the pod on the floor. */
+function standAt(game: Game, dx = 0) {
+  game.boss!.x = podCx(game) + dx;
+  game.pod.y = FLOOR_Y - POD_H;
+  game.pod.vx = game.pod.vy = 0;
+  game.pod.onGround = true;
+}
+
+// Layout: an indestructible ceiling with one gap at the far right, Hell below.
+{
+  const w = generateWorld(3);
+  for (let x = 0; x < WORLD_W; x++) {
+    assert.equal(tileAt(w, x, CEILING_ROW), x === HELL_GAP_COL ? T.AIR : T.BEDROCK, 'ceiling is sealed except the gap');
+    for (let y = CEILING_ROW + 1; y < FLOOR_ROW; y++) assert.equal(tileAt(w, x, y), T.AIR, 'the arena is open');
+    assert.equal(tileAt(w, x, FLOOR_ROW), T.BEDROCK, 'the arena floor is bedrock');
+  }
+  assert.equal(HELL_GAP_COL, WORLD_W - 1, 'the gap is at the far right');
+  assert.equal(CEILING_ROW - SKY_ROWS, GROUND_ROWS);
+  assert.ok(near(GROUND_ROWS * FEET_PER_TILE, 7287.5), 'diggable down to about -7,287 ft');
+  assert.ok(near((FLOOR_ROW - SKY_ROWS) * FEET_PER_TILE, 7400), "Hell's floor is at about -7,400 ft");
+  // Neither drills nor explosives get through the ceiling.
+  const game = flatGame();
+  for (let x = 0; x < WORLD_W; x++) setTile(game.world, x, CEILING_ROW, x === HELL_GAP_COL ? T.AIR : T.BEDROCK);
+  game.pod.x = 10 * TILE + (TILE - POD_W) / 2;
+  game.pod.y = CEILING_ROW * TILE - POD_H;
+  game.pod.onGround = true;
+  game.items.c4 = 1;
+  digOnce(game, press({ down: true }));
+  useItem(game, 'c4');
+  assert.equal(tileAt(game.world, 10, CEILING_ROW), T.BEDROCK, 'the ceiling holds');
+  console.log('hell layout ok');
+}
+
+// Dropping into Hell starts the fight, and he gloats.
+{
+  const game = hellGame();
+  assert.ok(inHell(game.pod));
+  const events = startFight(game);
+  assert.ok(events.some((e) => e.type === 'transmission' && e.id === 'reveal'));
+  assert.equal(game.boss!.form, 1);
+  assert.equal(game.boss!.hp, BOSS_HP[1]);
+  assert.ok(!game.story.includes('reveal'), 'replays every time the fight starts');
+  console.log('hell entry ok');
+}
+
+// Explosives: full damage only right at his feet, 60 a little further, none far off.
+{
+  const blastAt = (kind: 'c4' | 'dynamite', dx: number) => {
+    const game = hellGame();
+    startFight(game);
+    standAt(game, dx);
+    useItem(game, kind);
+    return BOSS_HP[1] - game.boss!.hp;
+  };
+  assert.equal(blastAt('c4', 0), 240, 'plastic explosive at his feet');
+  assert.equal(blastAt('dynamite', 0), 120, 'dynamite at his feet');
+  assert.equal(blastAt('c4', 2 * TILE), 60, 'plastic explosive nearby');
+  assert.equal(blastAt('dynamite', 1.3 * TILE), 60, 'dynamite nearby');
+  assert.equal(blastAt('dynamite', 2 * TILE), 0, "dynamite's blast is smaller");
+  assert.equal(blastAt('c4', 4 * TILE), 0, 'too far away');
+  // Drills and other items don't hurt him.
+  const game = hellGame();
+  startFight(game);
+  standAt(game);
+  useItem(game, 'nanobots');
+  useItem(game, 'fuel');
+  assert.equal(game.boss!.hp, BOSS_HP[1]);
+  console.log('boss damage ok');
+}
+
+// Beating his first form brings out the second, with a transmission in between.
+{
+  const game = hellGame();
+  startFight(game);
+  game.boss!.hp = 200;
+  standAt(game);
+  useItem(game, 'c4');
+  assert.equal(game.boss!.hp, 0);
+  assert.equal(game.boss!.move, 'sinking');
+  const hp = game.boss!.hp;
+  standAt(game);
+  useItem(game, 'c4');
+  assert.equal(game.boss!.hp, hp, "he can't be hurt while sinking");
+  const events = run(game, idle, 2.1);
+  assert.ok(events.some((e) => e.type === 'transmission' && e.id === 'trueForm'));
+  assert.equal(game.boss!.form, 2);
+  assert.equal(game.boss!.hp, BOSS_HP[2]);
+  run(game, idle, 1.6);
+  assert.ok(!['sinking', 'rising'].includes(game.boss!.move), 'the second form joins the fight');
+  console.log('boss second form ok');
+}
+
+// Beating his second form wins the game and pays $28,500,000.
+{
+  const game = hellGame();
+  startFight(game);
+  game.boss!.form = 2;
+  game.boss!.hp = 240;
+  const cash = game.cash;
+  standAt(game);
+  useItem(game, 'c4');
+  assert.equal(game.boss!.move, 'dying');
+  const events = run(game, idle, 3.1);
+  assert.ok(events.some((e) => e.type === 'over' && e.reason === 'won'));
+  assert.equal(game.over, 'won');
+  assert.equal(game.cash, cash + BOSS_REWARD);
+  assert.equal(BOSS_REWARD, 28_500_000);
+  console.log('boss victory ok');
+}
+
+// Up to three squares above the ceiling is still the fight; four resets it.
+{
+  const game = hellGame(HELL_GAP_COL);
+  startFight(game);
+  game.boss!.hp = 400;
+  const hover = (rowsAbove: number) => {
+    game.pod.y = (CEILING_ROW - rowsAbove) * TILE + (TILE - POD_H) / 2;
+    game.pod.vy = 0;
+    step(game, press({ up: true }), DT);
+  };
+  hover(3);
+  assert.equal(game.boss?.hp, 400, 'three squares up, still fighting');
+  hover(4);
+  assert.equal(game.boss, null, 'four squares up, the fight resets');
+  game.pod.y = FLOOR_Y - POD_H;
+  const events = step(game, idle, DT);
+  assert.ok(events.some((e) => e.type === 'transmission' && e.id === 'reveal'), 'he gloats again');
+  assert.equal(game.boss!.hp, BOSS_HP[1], 'back to full health');
+  // The Matter Transmitter is a way out.
+  game.pod.onGround = true;
+  game.items.matter = 1;
+  useItem(game, 'matter');
+  step(game, idle, DT);
+  assert.equal(game.boss, null, 'teleporting out resets the fight');
+  console.log('boss reset ok');
+}
+
+// His laser reaches through the ceiling, and touching him hurts.
+{
+  const game = hellGame(HELL_GAP_COL);
+  startFight(game);
+  const b = game.boss!;
+  // Parked two squares above the ceiling, right over the gap.
+  setTile(game.world, HELL_GAP_COL, CEILING_ROW - 1, T.DIRT);
+  game.pod.y = (CEILING_ROW - 1) * TILE - POD_H;
+  b.x = 26 * TILE;
+  b.facing = 1;
+  const eye = monocle(b);
+  const toPod = Math.atan2(game.pod.y + POD_H / 2 - eye.y, podCx(game) - eye.x);
+  b.move = 'laser';
+  b.t = 0;
+  b.dur = 1.6;
+  b.landed = false;
+  b.aim = toPod - 0.6;
+  b.sweep = 1.2;
+  const hull = game.hull;
+  const events = run(game, idle, 1.3);
+  assert.ok(events.some((e) => e.type === 'damage'), 'the laser hit through the ceiling');
+  assert.ok(game.hull < hull);
+  assert.ok(sweepLine(b), 'the beam is drawn while it sweeps');
+
+  const touched = hellGame();
+  startFight(touched);
+  standAt(touched, 5);
+  const before = touched.hull;
+  step(touched, idle, DT);
+  assert.ok(touched.hull < before, 'touching him hurts');
+  assert.ok(touched.pod.vy < 0, 'and bounces the pod');
+  console.log('boss attacks ok');
+}
+
+// His fireballs bounce along the floor and burn while they touch you.
+{
+  const game = hellGame(10);
+  startFight(game);
+  const b = game.boss!;
+  b.form = 2;
+  b.x = 20 * TILE;
+  b.facing = -1;
+  b.move = 'fireball';
+  b.t = 0;
+  b.dur = 0.9;
+  b.landed = false;
+  run(game, idle, 0.7);
+  assert.equal(b.fireballs.length, 1, 'out of the furnace');
+  b.move = 'idle';
+  b.dur = 999;
+  game.pod.x = 2 * TILE; // out of its way for now
+  let low = Infinity;
+  let high = -Infinity;
+  for (let i = 0; i < 240; i++) {
+    step(game, idle, DT);
+    const f = b.fireballs[0];
+    low = Math.min(low, f.y);
+    high = Math.max(high, f.y);
+  }
+  assert.ok(high >= FLOOR_Y - FIREBALL_R - 1, 'it touches the floor');
+  assert.ok(FLOOR_Y - low > POD_H + FIREBALL_R * 2, 'and bounces high enough to duck under');
+  const f = b.fireballs[0];
+  Object.assign(f, { x: podCx(game) + 20, y: FLOOR_Y - FIREBALL_R, vx: -170, vy: -300 });
+  const hull = game.hull;
+  run(game, idle, 0.1);
+  assert.ok(game.hull < hull, 'it burns the pod it rolls into');
+  console.log('fireballs ok');
+}
+
+/**
+ * Plays the whole fight the way the wiki suggests, minus any dodging: rush
+ * his feet, mash the plastic explosive, repair when hurt. Returns how it went.
+ */
+function botFight(game: Game, seed: number, maxSeconds = 600) {
+  const events = startFight(game);
+  game.boss!.rand = mulberry32(seed);
+  game.boss!.dur = 1.5;
+  const start = { c4: game.items.c4, nanobots: game.items.nanobots };
+  let seconds = 0;
+  let damage = 0;
+  while (!game.over && seconds < maxSeconds) {
+    const b = game.boss;
+    const pod = game.pod;
+    let input = idle;
+    if (b && !['sinking', 'rising', 'dying'].includes(b.move)) {
+      const dx = b.x - podCx(game);
+      if (Math.abs(dx) > 12) input = press({ left: dx < 0, right: dx > 0 });
+      if (pod.onGround && Math.abs(dx) <= 18) events.push(...useItem(game, 'c4'));
+    }
+    if (stats(game).maxHull - game.hull > 35) events.push(...useItem(game, 'nanobots'));
+    for (const e of step(game, input, DT)) {
+      events.push(e);
+      if (e.type === 'damage') damage += e.amount;
+    }
+    seconds += DT;
+  }
+  return {
+    over: game.over,
+    seconds: Math.round(seconds),
+    c4: start.c4 - game.items.c4,
+    nanobots: start.nanobots - game.items.nanobots,
+    damage: Math.round(damage),
+  };
+}
+
+// A well-equipped pod can win; one that skimped on its loadout can't.
+{
+  const wins = [];
+  for (let seed = 1; seed <= 6; seed++) wins.push(botFight(hellGame(), seed));
+  console.log('  well-equipped bot fights:', wins.map((r) => `${r.over} in ${r.seconds}s, ${r.c4} C4, ${r.nanobots} nanobots, ${r.damage} damage`).join('; '));
+  assert.ok(wins.every((r) => r.over === 'won'), 'top hull, 60 nanobots, 60 plastic explosives wins');
+  assert.ok(wins.every((r) => r.nanobots >= 8), 'but it takes real punishment');
+
+  const weak = hellGame();
+  weak.upgrades.hull = 3; // Steel Hull, 50 HP
+  weak.hull = stats(weak).maxHull;
+  weak.items.nanobots = 3;
+  const lost = botFight(weak, 1);
+  console.log(`  under-equipped bot: ${lost.over} in ${lost.seconds}s`);
+  assert.equal(lost.over, 'hull', 'a Steel Hull and three nanobots is not enough');
+  console.log('boss fight balance ok');
 }
 
 console.log('all motherload engine tests passed');

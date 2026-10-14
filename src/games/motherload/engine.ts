@@ -14,10 +14,17 @@ export const FEET_PER_TILE = 12.5;
 export const PX_PER_FT = TILE / FEET_PER_TILE;
 export const WORLD_W = 32; // the original map is 32 squares (400 ft) across
 export const SKY_ROWS = 6; // open air above the surface
-// Diggable rows: the original bottoms out around -7,287 ft. The boss arena
-// below it arrives in a later milestone; for now the floor is bedrock.
+// Diggable rows: the original bottoms out around -7,287 ft. Below that is an
+// indestructible ceiling with one gap at the far right, and under it Hell: the
+// boss arena, whose floor sits at about -7,400 ft.
 export const GROUND_ROWS = 583;
-export const WORLD_H = SKY_ROWS + GROUND_ROWS + 1;
+export const CEILING_ROW = SKY_ROWS + GROUND_ROWS;
+export const HELL_GAP_COL = WORLD_W - 1;
+export const ARENA_ROWS = 8;
+export const FLOOR_ROW = CEILING_ROW + 1 + ARENA_ROWS;
+export const WORLD_H = FLOOR_ROW + 1;
+// In Hell the altimeter is stuck on the number of the beast.
+export const HELL_FT = 66666;
 // Below this depth the altimeter scrambles into "?XXXXX ft.".
 export const SCRAMBLE_FT = 5813;
 
@@ -159,15 +166,17 @@ export function generateWorld(seed: number): World {
     for (let x = 0; x < WORLD_W; x++) {
       const d = y - SKY_ROWS;
       // The two squares under each shop are solid, empty, and indestructible.
-      tiles[y * WORLD_W + x] = d >= 0 && d < 2 && underShop(x) ? T.CONCRETE : groundTile(y, rand);
+      tiles[y * WORLD_W + x] = d >= 0 && d < 2 && underShop(x) ? T.CONCRETE : groundTile(x, y, rand);
     }
   }
   return { seed, tiles };
 }
 
-function groundTile(y: number, rand: () => number): Tile {
+function groundTile(x: number, y: number, rand: () => number): Tile {
   if (y < SKY_ROWS) return T.AIR;
-  if (y === WORLD_H - 1) return T.BEDROCK;
+  if (y === CEILING_ROW) return x === HELL_GAP_COL ? T.AIR : T.BEDROCK;
+  if (y >= FLOOR_ROW) return T.BEDROCK;
+  if (y > CEILING_ROW) return T.AIR;
   const d = y - SKY_ROWS;
   if (d < 2) return T.DIRT;
   if (rand() < 0.035) return T.AIR; // natural pockets
@@ -353,6 +362,9 @@ export const ITEM_KINDS = Object.keys(ITEMS) as ItemKind[];
 const RESERVE_FUEL = 25;
 const NANOBOT_REPAIR = 30;
 const BLAST_RADIUS = { dynamite: 1, c4: 2, gas: 1 } as const;
+// Explosives can't be chained instantly; mashing the key sets the next one off
+// as soon as it's ready (estimate).
+const EXPLOSIVE_RELOAD = 0.8;
 
 // --- Hazards ------------------------------------------------------------------
 
@@ -420,6 +432,8 @@ export interface Pod {
   facing: 1 | -1;
   thrusting: boolean;
   dig: Dig | null;
+  // Seconds until another explosive can be set off.
+  reload: number;
 }
 
 export interface Input {
@@ -429,7 +443,7 @@ export interface Input {
   down: boolean;
 }
 
-export type GameOver = 'fuel' | 'hull';
+export type GameOver = 'fuel' | 'hull' | 'won';
 
 export type GameEvent =
   | { type: 'dug'; tile: Tile; tx: number; ty: number }
@@ -442,6 +456,7 @@ export type GameEvent =
   | { type: 'teleport' }
   | { type: 'item'; kind: ItemKind }
   | { type: 'transmission'; id: string }
+  | { type: 'bossHit'; amount: number }
   | { type: 'over'; reason: GameOver };
 
 export interface Game {
@@ -459,6 +474,8 @@ export interface Game {
   over: GameOver | null;
   // Lifetime bests shown on the game-over screen.
   record: { deepest: number; earned: number };
+  // The fight in Hell, while it's on. Leaving resets it, so it's never saved.
+  boss: Boss | null;
 }
 
 export interface Stats {
@@ -501,6 +518,7 @@ function surfacePod(col: number): Pod {
     facing: 1,
     thrusting: false,
     dig: null,
+    reload: 0,
   };
 }
 
@@ -515,6 +533,7 @@ export function newGame(seed: number): Game {
     story: [],
     over: null,
     record: { deepest: 0, earned: 0 },
+    boss: null,
     world: generateWorld(seed),
     pod: surfacePod(SPAWN_COL),
   };
@@ -537,23 +556,30 @@ function span(start: number, length: number): [number, number] {
 
 /** Advance the game by `dt` seconds. Returns what happened during the step. */
 export function step(game: Game, input: Input, dt: number): GameEvent[] {
-  const pod = game.pod;
   const events: GameEvent[] = [];
   if (game.over) return events;
+  movePod(game, input, dt, events);
+  updateHell(game, dt, events);
+  checkStory(game, events);
+  return events;
+}
+
+function movePod(game: Game, input: Input, dt: number, events: GameEvent[]) {
+  const pod = game.pod;
   pod.thrusting = false;
+  pod.reload = Math.max(0, pod.reload - dt);
 
   if (pod.dig) {
     burn(game, BURN_IDLE + BURN_DRILL, dt, events);
     if (!game.over) advanceDig(game, dt, events);
-    checkStory(game, events);
-    return events;
+    return;
   }
 
   const s = stats(game);
   const dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
   if (dir !== 0) pod.facing = dir as 1 | -1;
 
-  if (pod.onGround && !input.up && tryStartDig(game, input, dir)) return events;
+  if (pod.onGround && !input.up && tryStartDig(game, input, dir)) return;
 
   // Heavier loads and weaker engines accelerate and climb more slowly.
   const drive = Math.sqrt((s.horsepower / 150) * (POD_MASS / s.mass));
@@ -587,8 +613,6 @@ export function step(game: Game, input: Input, dt: number): GameEvent[] {
   game.record.deepest = Math.max(game.record.deepest, depthFeet(pod));
   const rate = BURN_IDLE + (dir !== 0 ? BURN_DRIVE : 0) + (pod.thrusting ? BURN_THRUST : 0);
   burn(game, rate, dt, events);
-  checkStory(game, events);
-  return events;
 }
 
 /** Plays each depth-triggered transmission once, paying any reward. */
@@ -785,6 +809,330 @@ function moveY(game: Game, dy: number): number {
   return 0;
 }
 
+// --- Hell -----------------------------------------------------------------------
+//
+// The final fight, after the wiki's account of the original. Dr. Prash (the
+// original's Mr. Natas) has 1,000 HP in his first form and 2,000 in his
+// second. Only explosives hurt him, and only at full strength right at his
+// feet. Flying more than three squares above Hell's ceiling resets the fight.
+// The wiki doesn't document his attacks' damage, timing, or reach, so those
+// are estimates, tuned so a top hull with plenty of nanobots and plastic
+// explosives wins with some care.
+
+export const FLOOR_Y = FLOOR_ROW * TILE;
+const ARENA_TOP_Y = (CEILING_ROW + 1) * TILE;
+const FIGHT_ROWS_ABOVE = 3;
+
+export const BOSS_HP = { 1: 1000, 2: 2000 } as const;
+export const BOSS_REWARD = 28_500_000;
+// Hitboxes are narrow, as in the original; he's drawn wider than he is.
+export const BOSS_SIZE = { 1: { w: 28, h: 150 }, 2: { w: 40, h: 170 } } as const;
+export const FIREBALL_R = 11;
+
+// Explosive damage: full strength within this many pixels of his feet, a
+// glancing 60 anywhere else inside the blast.
+const FEET_REACH = 22;
+const BLAST_HIT = { dynamite: 120, c4: 240 } as const;
+const GLANCING_HIT = 60;
+
+// Attack damage and timing (estimates). Each move lasts `dur` seconds and can
+// hurt only between `from` and `to`.
+const ATTACKS = {
+  laser: { dur: 1.6, from: 0.5, to: 1.6, damage: 25, reach: 400, width: 14, kick: 170 },
+  staff: { dur: 0.9, from: 0.45, to: 0.7, damage: 35, reach: 110, width: 0, kick: 240 },
+  claw: { dur: 1.1, from: 0.5, to: 0.95, damage: 45, reach: 190, width: 18, kick: 230 },
+  fireball: { dur: 0.9, from: 0.6, to: 0.6, damage: 0, reach: 0, width: 0, kick: 0 },
+} as const;
+const TOUCH_DAMAGE = { 1: 20, 2: 30 } as const;
+const FIREBALL_DPS = 60;
+const WALK_SPEED = { 1: 45, 2: 65 } as const;
+
+export type BossMove = 'idle' | 'walk' | 'laser' | 'staff' | 'claw' | 'fireball' | 'sinking' | 'rising' | 'dying';
+
+export interface Fireball {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+}
+
+export interface Boss {
+  form: 1 | 2;
+  hp: number;
+  x: number; // the middle of his feet, in world pixels
+  facing: 1 | -1;
+  move: BossMove;
+  t: number; // seconds into the current move
+  dur: number;
+  // Where a laser or claw sweep starts and how far it turns, in radians.
+  aim: number;
+  sweep: number;
+  // Each swing, sweep, or fireball lands at most once per move.
+  landed: boolean;
+  touchCooldown: number;
+  hurt: number; // seconds left of the hit flash
+  fireballs: Fireball[];
+  rand: () => number;
+}
+
+/** Whether the pod is down in Hell, where the altimeter reads -66,666 ft. */
+export function inHell(pod: Pod): boolean {
+  return Math.floor((pod.y + POD_H / 2) / TILE) > CEILING_ROW;
+}
+
+export function newBoss(rand: () => number = mulberry32((Math.random() * 2 ** 32) >>> 0)): Boss {
+  return {
+    form: 1,
+    hp: BOSS_HP[1],
+    x: 18 * TILE,
+    facing: 1,
+    move: 'idle',
+    t: 0,
+    dur: 1.5,
+    aim: 0,
+    sweep: 0,
+    landed: false,
+    touchCooldown: 0,
+    hurt: 0,
+    fireballs: [],
+    rand,
+  };
+}
+
+/** The laser's origin: his monocle. */
+export function monocle(b: Boss) {
+  return { x: b.x + b.facing * 7, y: FLOOR_Y - 128 };
+}
+
+/** The claw's pivot: his shoulder. */
+export function shoulder(b: Boss) {
+  return { x: b.x + b.facing * 18, y: FLOOR_Y - 112 };
+}
+
+/** The laser or claw as a line segment while it can hurt, else null. */
+export function sweepLine(b: Boss): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (b.move !== 'laser' && b.move !== 'claw') return null;
+  const a = ATTACKS[b.move];
+  if (b.t < a.from) return null;
+  const k = Math.min(1, (b.t - a.from) / (a.to - a.from));
+  const o = b.move === 'laser' ? monocle(b) : shoulder(b);
+  const angle = b.aim + b.sweep * k;
+  return { x0: o.x, y0: o.y, x1: o.x + Math.cos(angle) * a.reach, y1: o.y + Math.sin(angle) * a.reach };
+}
+
+function startMove(b: Boss, move: BossMove, dur: number) {
+  b.move = move;
+  b.t = 0;
+  b.dur = dur;
+  b.landed = false;
+}
+
+/** Starts, runs, or resets the fight depending on where the pod is. */
+function updateHell(game: Game, dt: number, events: GameEvent[]) {
+  if (game.over) return;
+  const row = Math.floor((game.pod.y + POD_H / 2) / TILE);
+  if (!game.boss) {
+    if (row > CEILING_ROW) {
+      game.boss = newBoss();
+      events.push({ type: 'transmission', id: 'reveal' });
+    }
+    return;
+  }
+  if (row < CEILING_ROW - FIGHT_ROWS_ABOVE) {
+    game.boss = null;
+    return;
+  }
+  updateBoss(game, game.boss, dt, events);
+}
+
+function updateBoss(game: Game, b: Boss, dt: number, events: GameEvent[]) {
+  b.t += dt;
+  b.hurt = Math.max(0, b.hurt - dt);
+  b.touchCooldown = Math.max(0, b.touchCooldown - dt);
+  updateFireballs(game, b, dt, events);
+
+  if (b.move === 'sinking') {
+    if (b.t >= b.dur) {
+      // His second form climbs out once you've read his gloating.
+      b.form = 2;
+      b.hp = BOSS_HP[2];
+      startMove(b, 'rising', 1.5);
+      events.push({ type: 'transmission', id: 'trueForm' });
+    }
+    return;
+  }
+  if (b.move === 'rising') {
+    if (b.t >= b.dur) startMove(b, 'idle', 0.8);
+    return;
+  }
+  if (b.move === 'dying') {
+    if (b.t >= b.dur) {
+      game.cash += BOSS_REWARD;
+      game.record.earned += BOSS_REWARD;
+      game.boss = null;
+      end(game, 'won', events);
+    }
+    return;
+  }
+
+  const pod = game.pod;
+  const podCx = pod.x + POD_W / 2;
+  const podCy = pod.y + POD_H / 2;
+  const size = BOSS_SIZE[b.form];
+
+  // Bumping into him hurts and bounces the pod off the ground.
+  if (b.touchCooldown === 0 && overlaps(pod.x, pod.y, POD_W, POD_H, b.x - size.w / 2, FLOOR_Y - size.h, size.w, size.h)) {
+    b.touchCooldown = 1;
+    damage(game, TOUCH_DAMAGE[b.form], events);
+    kick(pod, (podCx >= b.x ? 1 : -1) * 180, -220);
+  }
+
+  if (b.move === 'walk') {
+    // He walks toward you and stops once he's on top of you.
+    if (Math.abs(podCx - b.x) > 20) {
+      b.facing = podCx >= b.x ? 1 : -1;
+      b.x += b.facing * WALK_SPEED[b.form] * dt;
+    }
+    b.x = Math.max(TILE * 1.5, Math.min(WORLD_W * TILE - TILE * 1.5, b.x));
+  } else if (b.move === 'laser' || b.move === 'claw') {
+    const a = ATTACKS[b.move];
+    const line = sweepLine(b);
+    if (line && !b.landed && segmentDistance(podCx, podCy, line) < a.width) {
+      b.landed = true;
+      damage(game, a.damage, events);
+      // Knocked away from the monocle or shoulder.
+      const d = Math.hypot(podCx - line.x0, podCy - line.y0) || 1;
+      kick(pod, ((podCx - line.x0) / d) * a.kick, ((podCy - line.y0) / d) * a.kick);
+    }
+  } else if (b.move === 'staff') {
+    const a = ATTACKS.staff;
+    const x0 = b.facing > 0 ? b.x : b.x - a.reach;
+    if (!b.landed && b.t >= a.from && b.t <= a.to && overlaps(pod.x, pod.y, POD_W, POD_H, x0, FLOOR_Y - 120, a.reach, 120)) {
+      b.landed = true;
+      damage(game, a.damage, events);
+      kick(pod, b.facing * a.kick, -260);
+    }
+  } else if (b.move === 'fireball' && !b.landed && b.t >= ATTACKS.fireball.from) {
+    // Out of the furnace in his chest.
+    b.landed = true;
+    b.fireballs.push({ x: b.x + b.facing * 22, y: FLOOR_Y - 80, vx: b.facing * 170, vy: -60, life: 7 });
+  }
+
+  if (b.t >= b.dur) chooseMove(game, b);
+}
+
+/** Picks his next move: a breather after each attack, then walk or attack. */
+function chooseMove(game: Game, b: Boss) {
+  const podCx = game.pod.x + POD_W / 2;
+  const dist = Math.abs(podCx - b.x);
+  b.facing = podCx >= b.x ? 1 : -1;
+  const r = b.rand();
+  const attacked = b.move !== 'idle' && b.move !== 'walk';
+  if (attacked) {
+    const rest = b.form === 1 ? 0.6 + r * 0.6 : 0.35 + r * 0.45;
+    startMove(b, 'idle', rest);
+    return;
+  }
+  const walk = () => startMove(b, 'walk', 0.8 + b.rand() * 0.8);
+  if (b.form === 1) {
+    if (dist < 110 && r < 0.55) startMove(b, 'staff', ATTACKS.staff.dur);
+    else if (r < (dist < 110 ? 0.8 : 0.45)) laser(b);
+    else walk();
+  } else {
+    if (dist < 170 && r < 0.55) claw(b);
+    else if (r < 0.75 && b.fireballs.length < 2) startMove(b, 'fireball', ATTACKS.fireball.dur);
+    else walk();
+  }
+}
+
+/** The laser sweeps an arc in a random direction, not necessarily at you. */
+function laser(b: Boss) {
+  startMove(b, 'laser', ATTACKS.laser.dur);
+  b.aim = -Math.PI - 0.3 + b.rand() * (Math.PI + 0.6);
+  b.sweep = (b.rand() < 0.5 ? -1 : 1) * (1.4 + b.rand() * 0.5);
+}
+
+/** The claw swings from overhead down through the space in front of him. */
+function claw(b: Boss) {
+  startMove(b, 'claw', ATTACKS.claw.dur);
+  const start = -1.75; // up and a little behind him, when facing right
+  b.aim = b.facing > 0 ? start : Math.PI - start;
+  b.sweep = b.facing * 2.3;
+}
+
+function updateFireballs(game: Game, b: Boss, dt: number, events: GameEvent[]) {
+  const pod = game.pod;
+  const maxX = WORLD_W * TILE - FIREBALL_R;
+  for (let i = b.fireballs.length - 1; i >= 0; i--) {
+    const f = b.fireballs[i];
+    f.life -= dt;
+    if (f.life <= 0) {
+      b.fireballs.splice(i, 1);
+      continue;
+    }
+    f.vy += GRAVITY * 0.7 * dt;
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    // It keeps bouncing to the same height, low enough to fly over and high
+    // enough to duck under at the top of a bounce.
+    if (f.y > FLOOR_Y - FIREBALL_R) {
+      f.y = FLOOR_Y - FIREBALL_R;
+      f.vy = -300;
+    }
+    if (f.y < ARENA_TOP_Y + FIREBALL_R) {
+      f.y = ARENA_TOP_Y + FIREBALL_R;
+      f.vy = Math.abs(f.vy);
+    }
+    if (f.x < FIREBALL_R || f.x > maxX) {
+      f.x = Math.max(FIREBALL_R, Math.min(maxX, f.x));
+      f.vx = -f.vx;
+    }
+    // It burns for as long as you touch it.
+    const nx = Math.max(pod.x, Math.min(f.x, pod.x + POD_W));
+    const ny = Math.max(pod.y, Math.min(f.y, pod.y + POD_H));
+    if (Math.hypot(f.x - nx, f.y - ny) < FIREBALL_R) damage(game, FIREBALL_DPS * dt, events);
+  }
+}
+
+/** An explosive set off by the pod. Full damage at his feet, a little nearby. */
+function hitBoss(game: Game, kind: 'dynamite' | 'c4', events: GameEvent[]) {
+  const b = game.boss;
+  if (!b || b.move === 'sinking' || b.move === 'rising' || b.move === 'dying') return;
+  const pod = game.pod;
+  const dist = Math.hypot(pod.x + POD_W / 2 - b.x, pod.y + POD_H - FLOOR_Y);
+  const reach = (BLAST_RADIUS[kind] + 0.5) * TILE;
+  const amount = dist <= FEET_REACH ? BLAST_HIT[kind] : dist <= reach ? GLANCING_HIT : 0;
+  if (!amount) return;
+  b.hp = Math.max(0, b.hp - amount);
+  b.hurt = 0.3;
+  events.push({ type: 'bossHit', amount });
+  if (b.hp === 0) {
+    b.fireballs = [];
+    if (b.form === 1) startMove(b, 'sinking', 2);
+    else startMove(b, 'dying', 3);
+  }
+}
+
+/** Shoves the pod, unless it's mid-dig above the ceiling. */
+function kick(pod: Pod, vx: number, vy: number) {
+  if (pod.dig) return;
+  pod.vx = vx;
+  pod.vy = vy;
+  pod.onGround = false;
+}
+
+function overlaps(ax: number, ay: number, aw: number, ah: number, bx: number, by: number, bw: number, bh: number) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function segmentDistance(px: number, py: number, s: { x0: number; y0: number; x1: number; y1: number }) {
+  const dx = s.x1 - s.x0;
+  const dy = s.y1 - s.y0;
+  const k = Math.max(0, Math.min(1, ((px - s.x0) * dx + (py - s.y0) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (s.x0 + dx * k), py - (s.y0 + dy * k));
+}
+
 // --- Surface stops --------------------------------------------------------------
 
 /** The shop the pod is parked at, if it is on the surface. */
@@ -829,6 +1177,7 @@ export function canUseItem(game: Game, kind: ItemKind): boolean {
   if (game.over || game.items[kind] <= 0) return false;
   if (kind === 'fuel') return game.fuel < stats(game).maxFuel;
   if (kind === 'nanobots') return game.hull < stats(game).maxHull;
+  if ((kind === 'dynamite' || kind === 'c4') && game.pod.reload > 0) return false;
   return game.pod.onGround && !game.pod.dig;
 }
 
@@ -844,7 +1193,9 @@ export function useItem(game: Game, kind: ItemKind, rand: () => number = Math.ra
   } else if (kind === 'nanobots') {
     game.hull = Math.min(s.maxHull, game.hull + NANOBOT_REPAIR);
   } else if (kind === 'dynamite' || kind === 'c4') {
+    pod.reload = EXPLOSIVE_RELOAD;
     blast(game, Math.floor((pod.x + POD_W / 2) / TILE), Math.floor((pod.y + POD_H / 2) / TILE), BLAST_RADIUS[kind], events);
+    hitBoss(game, kind, events);
   } else if (kind === 'matter') {
     // Safely beside the fuel station, on solid ground.
     Object.assign(pod, surfacePod(nearestSolidSurface(game, BUILDINGS[0].x1 + 1)));

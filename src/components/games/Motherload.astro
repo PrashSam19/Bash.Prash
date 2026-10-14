@@ -880,6 +880,34 @@ import headshot from '../../assets/headshot.jpg';
     filter: saturate(1.4) contrast(1.1) sepia(0.15) hue-rotate(-10deg);
   }
 
+  .ml-tv.devil img {
+    filter: sepia(0.6) saturate(2.4) hue-rotate(-25deg) contrast(1.25) brightness(0.8);
+  }
+
+  .ml-devil,
+  .ml-devil svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .ml-devil svg circle {
+    animation: ml-glare 1.2s ease-in-out infinite alternate;
+  }
+
+  @keyframes ml-glare {
+    from {
+      opacity: 0.55;
+    }
+  }
+
+  .ml-victory ul {
+    margin: 0;
+    padding-left: 1.2em;
+    columns: 2;
+  }
+
   .ml-tv::after {
     content: '';
     position: absolute;
@@ -1041,6 +1069,8 @@ import headshot from '../../assets/headshot.jpg';
     ITEM_KINDS,
     REPAIR_PRICE,
     SCRAMBLE_FT,
+    HELL_FT,
+    BOSS_REWARD,
     MARSQUAKE_CHANCE,
     newGame,
     step,
@@ -1061,6 +1091,7 @@ import headshot from '../../assets/headshot.jpg';
     marsquake,
     receive,
     tierOf,
+    inHell,
     type Building,
     type Game,
     type GameEvent,
@@ -1071,7 +1102,7 @@ import headshot from '../../assets/headshot.jpg';
   } from '../../games/motherload/engine';
   import { createRenderer } from '../../games/motherload/render';
   import { serialize, deserialize, type SaveData } from '../../games/motherload/save';
-  import { SPEAKERS, transmission } from '../../games/motherload/story';
+  import { SPEAKERS, SPOILS, VICTORY, transmission } from '../../games/motherload/story';
   import { upgradeIcon, categoryIcon, itemIcon, oreIcon, podIcon } from '../../games/motherload/icons';
 
   const STEP = 1 / 60;
@@ -1129,6 +1160,16 @@ import headshot from '../../assets/headshot.jpg';
     <rect x="52" y="168" width="16" height="52" fill="#1d1d1d"/>
   </svg>`;
 
+  // Horns and burning eyes over Dr. Prash's photo, for his true colours. In
+  // the photo's own coordinates, as percentages.
+  const DEVIL_SVG = `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+    <defs><radialGradient id="ml-eye"><stop offset="0" stop-color="#fff4d0"/><stop offset=".35" stop-color="#ff2a1a"/><stop offset="1" stop-color="#ff0000" stop-opacity="0"/></radialGradient></defs>
+    <path d="M30 17 C27 9 25 4 20 0 C27 3 33 8 36 15 Z" fill="#b3261c" stroke="#4a0a06" stroke-width=".6"/>
+    <path d="M58 11 C60 5 64 2 70 0 C66 4 64 8 64 14 Z" fill="#b3261c" stroke="#4a0a06" stroke-width=".6"/>
+    <circle cx="47.2" cy="33.1" r="4.5" fill="url(#ml-eye)"/>
+    <circle cx="65" cy="32.2" r="4.5" fill="url(#ml-eye)"/>
+  </svg>`;
+
   const root = document.querySelector<HTMLElement>('.motherload');
   if (root) {
     const $ = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
@@ -1145,7 +1186,10 @@ import headshot from '../../assets/headshot.jpg';
     const portrait = $<HTMLTemplateElement>('[data-prash-portrait]');
     $('[data-inv-pod]').append(podIcon(48));
 
-    const renderer = createRenderer(canvas);
+    // The boss wears Dr. Prash's face, from the same photo as his transmissions.
+    const face = new Image();
+    face.src = portrait.content.querySelector('img')?.src ?? '';
+    const renderer = createRenderer(canvas, face);
     const input: Input = { left: false, right: false, up: false, down: false };
     let game: Game;
     // The open window: how to draw it, whether Esc closes it, and what to do after.
@@ -1551,9 +1595,15 @@ import headshot from '../../assets/headshot.jpg';
 
     function transmissionWindow(id: string) {
       const t = transmission(id)!;
-      const tv = el('div', { class: `ml-tv ${t.from === 'prash' ? 'prash' : t.from === 'unknown' ? 'static' : ''}` });
-      if (t.from === 'prash') tv.append(portrait.content.cloneNode(true));
+      const look = { prash: 'prash', devil: 'prash devil', unknown: 'static' }[t.from as string] ?? '';
+      const tv = el('div', { class: `ml-tv ${look}` });
+      if (t.from === 'prash' || t.from === 'devil') tv.append(portrait.content.cloneNode(true));
       else if (t.from !== 'unknown') tv.append(podIcon(160));
+      if (t.from === 'devil') {
+        const mask = el('span', { class: 'ml-devil', 'aria-hidden': 'true' });
+        mask.innerHTML = DEVIL_SVG;
+        tv.append(mask);
+      }
       return frame(
         'Incoming Transmission',
         '',
@@ -1676,6 +1726,27 @@ import headshot from '../../assets/headshot.jpg';
       );
     }
 
+    // The original's victory screen: his remains, cashed in.
+    function victoryWindow() {
+      return frame(
+        'Congratulations!',
+        '',
+        false,
+        el(
+          'div',
+          { class: 'ml-plain ml-victory' },
+          el('p', {}, VICTORY),
+          el('div', { class: 'ml-screen' }, el('h4', {}, 'RECOVERED:'), el('ul', {}, ...SPOILS.map((s) => el('li', {}, s)))),
+          el('p', { class: 'ml-tx-reward' }, `+${money(BOSS_REWARD)} deposited.`),
+          el('p', {}, `Final cash: ${money(game.cash)} · Earned: ${money(game.record.earned)} · Deepest: -${HELL_FT.toLocaleString()} ft.`),
+          btn('Play again', () => {
+            begin(newGame(newSeed()));
+            welcome();
+          }, { cls: 'ml-btn green' }),
+        ),
+      );
+    }
+
     function welcome() {
       if (receive(game, 'welcome')) showTransmission('welcome');
       else canvas.focus();
@@ -1692,8 +1763,9 @@ import headshot from '../../assets/headshot.jpg';
       cashEl.textContent = money(game.cash);
       const d = depthFeet(game.pod);
       // Below about -5,800 ft the altimeter scrambles, as in the original.
-      depthEl.textContent =
-        d >= SCRAMBLE_FT
+      depthEl.textContent = inHell(game.pod)
+        ? `-${HELL_FT.toLocaleString()} ft.`
+        : d >= SCRAMBLE_FT
           ? `-?${String(Math.floor((time * 37) % 100000)).padStart(5, '0')} ft.`
           : d === 0
             ? '0 ft.'
@@ -1726,9 +1798,12 @@ import headshot from '../../assets/headshot.jpg';
           case 'transmission':
             showTransmission(ev.id);
             break;
+          case 'bossHit':
+            renderer.bossHit(game, ev.amount);
+            break;
           case 'over':
             queue.length = 0;
-            open(gameOverWindow, false);
+            open(ev.reason === 'won' ? victoryWindow : gameOverWindow, false);
             break;
         }
       }
@@ -1737,7 +1812,8 @@ import headshot from '../../assets/headshot.jpg';
     canvas.addEventListener('keydown', (e) => {
       if (e.code === 'KeyI') {
         e.preventDefault();
-        if (!game.over) open(inventoryWindow);
+        // As in the original, there's no inventory screen mid-fight.
+        if (!game.over && !game.boss) open(inventoryWindow);
         return;
       }
       const item = ITEM_KEYS.get(e.code);
@@ -1793,7 +1869,7 @@ import headshot from '../../assets/headshot.jpg';
       activate();
     });
     $<HTMLButtonElement>('[data-inv]').addEventListener('click', () => {
-      if (!game.over && modal.hidden) open(inventoryWindow);
+      if (!game.over && !game.boss && modal.hidden) open(inventoryWindow);
     });
     $<HTMLButtonElement>('[data-new]').addEventListener('click', () => {
       if (game.over) {
@@ -1856,5 +1932,10 @@ import headshot from '../../assets/headshot.jpg';
       begin(newGame(newSeed()));
     }
     requestAnimationFrame(frameLoop);
+
+    // Lets automated browser tests reach the game state. Dev server only.
+    if (import.meta.env.DEV) {
+      (window as unknown as { motherload: unknown }).motherload = { get game() { return game; }, renderer };
+    }
   }
 </script>
