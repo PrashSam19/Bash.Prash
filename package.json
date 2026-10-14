@@ -7,12 +7,13 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node scripts/askprash-corpus.ts",
     "preview": "astro preview",
     "astro": "astro",
-    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts && node src/games/prashboy/rom.test.ts && node src/tools/askprash/chat.test.ts"
+    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts && node src/games/prashboy/rom.test.ts && node src/tools/askprash/chat.test.ts && node src/tools/askprash/server.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.134.0",
     "astro": "^7.3.8"
   }
 }

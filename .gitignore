@@ -16,6 +16,7 @@ pnpm-debug.log*
 # environment variables
 .env
 .env.production
+.env.local
 
 # macOS-specific files
 .DS_Store
@@ -28,3 +29,6 @@ PrashPics/
 
 # Personal Claude Code settings
 .claude/settings.local.json
+
+# Built from dist/ by scripts/askprash-corpus.ts
+src/tools/askprash/corpus.generated.json

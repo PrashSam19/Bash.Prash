@@ -1,10 +1,13 @@
 ---
 // Ask Prash chat. The disclaimer has to be acknowledged before the chat opens.
-// Milestone 1 runs on canned replies in the browser; nothing is sent anywhere.
+// Real replies are on only when PUBLIC_ASK_PRASH_LIVE is "true" at build time;
+// otherwise the page runs on canned replies and nothing leaves the browser.
 import { LIMITS } from '../../tools/askprash/chat';
+
+const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
 ---
 
-<section class="askprash" aria-label="Ask Prash">
+<section class="askprash" aria-label="Ask Prash" data-live={live ? 'true' : undefined}>
   <div class="askprash-warning" role="note" data-warning>
     <p class="askprash-warning-head">This is NOT me.</p>
     <p>
@@ -16,7 +19,11 @@ import { LIMITS } from '../../tools/askprash/chat';
 
   <div class="askprash-chat" data-chat hidden>
     <p class="askprash-preview">
-      Preview build: canned replies only. Nothing you type leaves your browser.
+      {
+        live
+          ? 'Test build: real replies from Claude Haiku, grounded in the pages on this site.'
+          : 'Preview build: canned replies only. Nothing you type leaves your browser.'
+      }
     </p>
 
     <ol class="askprash-log" data-log aria-live="polite"></ol>
@@ -235,7 +242,15 @@ import { LIMITS } from '../../tools/askprash/chat';
 </style>
 
 <script>
-  import { LIMITS, cannedBackend, checkMessage, isSafeHref, questionsAsked, type Turn } from '../../tools/askprash/chat';
+  import {
+    LIMITS,
+    cannedBackend,
+    checkMessage,
+    httpBackend,
+    isSafeHref,
+    questionsAsked,
+    type Turn,
+  } from '../../tools/askprash/chat';
 
   const ACK_KEY = 'askprash.ack';
 
@@ -251,7 +266,7 @@ import { LIMITS } from '../../tools/askprash/chat';
   const resetButton = root.querySelector<HTMLButtonElement>('[data-reset]')!;
   const status = root.querySelector<HTMLElement>('[data-status]')!;
 
-  const backend = cannedBackend();
+  const backend = root.dataset.live === 'true' ? httpBackend('/api/ask-prash') : cannedBackend();
   let history: Turn[] = [];
   let streaming: AbortController | null = null;
 
@@ -328,7 +343,7 @@ import { LIMITS } from '../../tools/askprash/chat';
     }
     status.textContent = '';
     history.push({ role: 'user', text: check.text });
-    addMessage('user', check.text);
+    const question = addMessage('user', check.text);
     input.value = '';
 
     const controller = new AbortController();
@@ -337,23 +352,35 @@ import { LIMITS } from '../../tools/askprash/chat';
     const { item, body } = addMessage('assistant', '');
     item.classList.add('thinking');
     let reply = '';
+    let failed = '';
     try {
       for await (const event of backend.reply(history, controller.signal)) {
         if (event.type === 'text') {
           reply += event.text;
           body.textContent = reply;
-        } else {
+        } else if (event.type === 'source') {
           addSource(item, event.href, event.title);
+        } else {
+          failed = event.message;
         }
       }
-      history.push({ role: 'assistant', text: reply });
+      if (!failed && !reply.trim()) failed = 'I blanked on that one. Try asking another way.';
     } catch {
       if (controller.signal.aborted) return;
-      body.textContent = reply || 'Something broke on my end. Try again in a bit.';
-      history.push({ role: 'assistant', text: body.textContent });
+      failed = 'Something broke on my end. Try again in a bit.';
     } finally {
       item.classList.remove('thinking');
       if (streaming === controller) streaming = null;
+    }
+    if (failed) {
+      // A failed turn doesn't count: drop it and hand the question back.
+      history.pop();
+      question.item.remove();
+      item.remove();
+      input.value = check.text;
+      status.textContent = failed;
+    } else {
+      history.push({ role: 'assistant', text: reply });
     }
     if (questionsAsked(history) >= LIMITS.maxTurns) {
       status.textContent = 'That is the limit for this chat. Hit New chat to start over.';

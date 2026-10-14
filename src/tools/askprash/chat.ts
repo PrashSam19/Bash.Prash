@@ -1,9 +1,9 @@
 // Conversation rules and the reply backend for Ask Prash.
 //
-// The page talks to a Backend that streams reply events. Milestone 1 ships
-// cannedBackend, which picks from a few fixed lines and never leaves the
-// browser. Milestone 2 swaps in a backend that calls the Netlify Function,
-// which enforces these same limits again on the server.
+// The page talks to a Backend that streams reply events. cannedBackend picks
+// from a few fixed lines and never leaves the browser; httpBackend streams
+// real replies from /api/ask-prash, which enforces these same limits again
+// on the server.
 
 export const LIMITS = {
   // Characters per message.
@@ -20,7 +20,10 @@ export interface Turn {
 }
 
 // A reply arrives as a stream of text pieces, plus the site pages it drew on.
-export type ReplyEvent = { type: 'text'; text: string } | { type: 'source'; href: string; title: string };
+export type ReplyEvent =
+  | { type: 'text'; text: string }
+  | { type: 'source'; href: string; title: string }
+  | { type: 'error'; message: string };
 
 export interface Backend {
   reply(history: Turn[], signal?: AbortSignal): AsyncIterable<ReplyEvent>;
@@ -125,6 +128,37 @@ export function cannedBackend(delayMs = 35, pick: () => number = Math.random): B
         yield { type: 'text', text: word };
       }
       for (const source of sources ?? []) yield { type: 'source', ...source };
+    },
+  };
+}
+
+// Streams reply events from the Ask Prash endpoint, one JSON object per line.
+// A refused request (off, limited, malformed) comes back as a single error.
+export function httpBackend(url: string, fetchImpl: typeof fetch = fetch): Backend {
+  return {
+    async *reply(history, signal) {
+      const res = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ history }),
+        signal,
+      });
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => null);
+        yield { type: 'error', message: body?.error ?? 'Something broke on my end. Try again in a bit.' };
+        return;
+      }
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!;
+        for (const line of lines) if (line.trim()) yield JSON.parse(line) as ReplyEvent;
+      }
+      if (buffer.trim()) yield JSON.parse(buffer) as ReplyEvent;
     },
   };
 }
