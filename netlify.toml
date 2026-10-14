@@ -6,3 +6,25 @@
   for = "/_astro/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Prash Boy's emulator core runs on threads, which browsers only allow on
+# cross-origin isolated pages. Scoped to the two pages that host it and the
+# core itself so the rest of the site is unaffected. Keep in sync with
+# isolatedPaths in astro.config.mjs.
+[[headers]]
+  for = "/prashboy/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+
+[[headers]]
+  for = "/games/prash-boy/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+
+# The core's folder is versioned, so a new core gets a new URL.
+[[headers]]
+  for = "/prashboy/core/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

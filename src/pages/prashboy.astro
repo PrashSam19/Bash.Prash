@@ -1,0 +1,46 @@
+---
+// Full-screen Prash Boy with no site chrome, made to be added to the iPhone
+// Home Screen. Shares its shelf and saves with the games page (same origin).
+import PrashBoy from '../components/games/PrashBoy.astro';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Prash Boy Advance SP</title>
+    <meta name="description" content="A silver handheld in your browser. Bring your own GB, GBC, or GBA games." />
+    <meta name="theme-color" content="#16181c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Prash Boy" />
+    <link rel="manifest" href="/prashboy/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/prashboy/icon.svg" />
+    <link rel="apple-touch-icon" href="/prashboy/icon-180.png" />
+    <style is:global>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: radial-gradient(120% 80% at 50% 0%, #2a2e35, #101114);
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      body {
+        box-sizing: border-box;
+        padding: max(env(safe-area-inset-top), 12px) max(env(safe-area-inset-right), 10px)
+          max(env(safe-area-inset-bottom), 8px) max(env(safe-area-inset-left), 10px);
+      }
+      @media (orientation: landscape) and (max-height: 560px) {
+        body {
+          padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <PrashBoy mode="app" />
+  </body>
+</html>

@@ -10,7 +10,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts"
+    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts && node src/games/prashboy/rom.test.ts"
   },
   "dependencies": {
     "astro": "^7.3.8"

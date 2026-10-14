@@ -1,0 +1,1766 @@
+---
+// Prash Boy Advance SP: a browser handheld that plays the visitor's own GB,
+// GBC, and GBA ROMs. The mGBA core (public/prashboy/core) emulates; this
+// component owns the shell, touch and keyboard controls, the game shelf, save
+// slots, and persistence. ROMs, saves, and states live in the browser's
+// IndexedDB through the core's file system, so nothing is ever uploaded.
+// The page must be cross-origin isolated (see netlify.toml), or the threaded
+// core won't start.
+interface Props {
+  // embed: inside a site page. app: the full-screen /prashboy/ page.
+  mode?: 'embed' | 'app';
+}
+const { mode = 'embed' } = Astro.props;
+---
+
+<section class="prashboy" data-prashboy data-mode={mode} aria-label="Prash Boy Advance SP">
+  <div class="pb-frame">
+    <div class="pb-device">
+      <div class="pb-lid">
+        <div class="pb-bezel">
+          <div class="pb-screen" data-screen>
+            <canvas data-canvas width="240" height="160" aria-label="Game screen"></canvas>
+            <button type="button" class="pb-boot" data-boot>
+              <span class="pb-boot-logo">PRASH BOY</span>
+              <span class="pb-boot-sub">ADVANCE SP</span>
+              <span class="pb-boot-msg" data-boot-msg>Loading…</span>
+            </button>
+          </div>
+          <p class="pb-brand"><b>PRASH BOY</b> <i>ADVANCE</i> <span>SP</span></p>
+        </div>
+      </div>
+
+      <div class="pb-hinge" aria-hidden="true"></div>
+
+      <div class="pb-base">
+        <button type="button" class="pb-shoulder pb-l" data-btn="L" aria-label="L">L</button>
+        <button type="button" class="pb-shoulder pb-r" data-btn="R" aria-label="R">R</button>
+
+        <div class="pb-top-row">
+          <span class="pb-led"><i data-led></i>POWER</span>
+          <button type="button" class="pb-menu" data-menu aria-label="Menu"><i></i><span>MENU</span></button>
+          <span class="pb-led pb-led-charge"><i></i>CHARGE</span>
+        </div>
+
+        <div class="pb-controls">
+          <div class="pb-dpad" data-dpad role="group" aria-label="Directional pad">
+            <span class="pb-dpad-cross" aria-hidden="true">
+              <i class="pb-arrow pb-up"></i><i class="pb-arrow pb-down"></i>
+              <i class="pb-arrow pb-left"></i><i class="pb-arrow pb-right"></i>
+            </span>
+          </div>
+          <div class="pb-ab">
+            <button type="button" class="pb-round pb-b" data-btn="B" aria-label="B"><span>B</span></button>
+            <button type="button" class="pb-round pb-a" data-btn="A" aria-label="A"><span>A</span></button>
+          </div>
+        </div>
+
+        <div class="pb-start-select">
+          <label><button type="button" class="pb-pill" data-btn="Select" aria-label="Select"></button>SELECT</label>
+          <label><button type="button" class="pb-pill" data-btn="Start" aria-label="Start"></button>START</label>
+        </div>
+
+        <div class="pb-speaker" aria-hidden="true">
+          {Array.from({ length: 18 }, () => <i></i>)}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pb-sheet" data-sheet hidden>
+    <div class="pb-panel" role="dialog" aria-modal="true" aria-labelledby="pb-panel-title">
+      <div class="pb-panel-head">
+        <h2 id="pb-panel-title" data-panel-title>Game shelf</h2>
+        <button type="button" class="pb-close" data-close aria-label="Close">Done</button>
+      </div>
+
+      <div data-view="shelf">
+        <div class="pb-shelf" data-shelf></div>
+        <label class="pb-add">
+          <input type="file" data-file multiple />
+          <span>+ Add a game</span>
+        </label>
+        <p class="pb-fine">
+          .gba, .gbc, and .gb files (or .zip). Games are kept in this browser on this device, so they're
+          here next time.
+        </p>
+        <p class="pb-tip" data-ios-tip hidden>
+          Tip: tap Share, then <b>Add to Home Screen</b>. Safari can clear data for sites you haven't
+          visited in a while, but Home Screen apps keep their games and saves.
+        </p>
+      </div>
+
+      <div data-view="menu" hidden>
+        <p class="pb-now" data-now></p>
+        <button type="button" class="pb-wide pb-primary" data-resume>Resume</button>
+        <h3>Save states</h3>
+        <ul class="pb-slots" data-slots></ul>
+        <h3>Options</h3>
+        <div class="pb-toggles">
+          <button type="button" class="pb-wide" data-sound aria-pressed="true">Sound: On</button>
+          <button type="button" class="pb-wide" data-turbo aria-pressed="false">Fast forward: Off</button>
+        </div>
+        <button type="button" class="pb-wide" data-shelf-open>Change game</button>
+        <button type="button" class="pb-wide" data-download>Download save file</button>
+        <label class="pb-wide pb-file-btn">
+          <input type="file" data-restore />Restore save file
+        </label>
+        <button type="button" class="pb-wide pb-danger" data-restart>Restart game</button>
+        <p class="pb-fine">
+          The game also resumes where you left off when you come back. Restart starts over from the
+          game's own save.
+        </p>
+      </div>
+      <p class="pb-toast" data-toast aria-live="polite"></p>
+    </div>
+  </div>
+
+  <p class="pb-note">
+    <b>Bring your own ROM.</b> Prash Boy doesn't include or host any games. Load ROM files you own;
+    they stay in your browser on this device and are never uploaded.{' '}
+    <span class="pb-keys">
+      Keyboard: arrows, <kbd>X</kbd> A, <kbd>Z</kbd> B, <kbd>A</kbd>/<kbd>S</kbd> L/R,{' '}
+      <kbd>Enter</kbd> Start, <kbd>Backspace</kbd> Select, <kbd>Esc</kbd> menu.
+    </span>{' '}
+    Emulation by{' '}
+    <a href="https://github.com/thenick775/mgba/tree/feature/wasm">mGBA-wasm</a> (MPL-2.0), built on{' '}
+    <a href="https://mgba.io">mGBA</a>. Not affiliated with Nintendo.
+  </p>
+</section>
+
+<style is:global>
+  /* Global to match the other game components; every rule is prefixed. */
+  .prashboy {
+    --silver-hi: #f1f3f5;
+    --silver: #cfd4d9;
+    --silver-lo: #a9b0b8;
+    --silver-edge: #8c939b;
+    --key: #2c2f34;
+    --key-hi: #474b52;
+    --ink: #3a3f45;
+    margin: 1.5rem 0 2.5rem;
+    text-shadow: none;
+    color: #1d2024;
+    /* The device is silver in either site theme, so form controls stay light. */
+    color-scheme: light;
+    font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The full-screen page doesn't load the site's global reset. */
+  .prashboy *,
+  .prashboy *::before,
+  .prashboy *::after {
+    box-sizing: border-box;
+  }
+
+  /* The frame is the size container every unit inside the device scales by. */
+  .pb-frame {
+    container-type: size;
+    width: min(100%, calc((100svh - 2rem) / 1.8), 30rem);
+    aspect-ratio: 1 / 1.8;
+    margin: 0 auto;
+  }
+
+  .prashboy[data-mode="app"] {
+    margin: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .prashboy[data-mode="app"] .pb-frame {
+    flex: 1;
+    /* Leaves room below for the note so START and SELECT never get covered. */
+    width: min(100%, calc((100svh - 6rem) / 1.6), 32rem);
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+
+  .pb-device {
+    --u: 1cqw;
+    position: relative;
+    width: 100cqw;
+    height: 100cqh;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+  }
+
+  .pb-lid,
+  .pb-base {
+    background:
+      radial-gradient(120% 60% at 20% 0%, rgba(255, 255, 255, 0.75), transparent 60%),
+      linear-gradient(165deg, var(--silver-hi), var(--silver) 45%, var(--silver-lo));
+    box-shadow:
+      inset 0 calc(var(--u) * 0.4) 0 rgba(255, 255, 255, 0.8),
+      inset 0 calc(var(--u) * -0.6) calc(var(--u) * 1.2) rgba(0, 0, 0, 0.18),
+      0 calc(var(--u) * 1.5) calc(var(--u) * 4) rgba(0, 0, 0, 0.35);
+    border: calc(var(--u) * 0.3) solid var(--silver-edge);
+  }
+
+  .pb-lid {
+    flex: none;
+    padding: calc(var(--u) * 5) calc(var(--u) * 5) calc(var(--u) * 4);
+    border-radius: calc(var(--u) * 6) calc(var(--u) * 6) calc(var(--u) * 2.5) calc(var(--u) * 2.5);
+  }
+
+  .pb-bezel {
+    background: linear-gradient(180deg, #2a2d32, #1b1d21);
+    border-radius: calc(var(--u) * 3.5);
+    padding: calc(var(--u) * 4) calc(var(--u) * 4.5) calc(var(--u) * 2.4);
+    box-shadow: inset 0 0 0 calc(var(--u) * 0.4) #111;
+  }
+
+  .pb-screen {
+    position: relative;
+    aspect-ratio: 3 / 2;
+    background: #0b0d0a;
+    border-radius: calc(var(--u) * 0.8);
+    overflow: hidden;
+    box-shadow: inset 0 0 calc(var(--u) * 2) rgba(0, 0, 0, 0.9);
+  }
+
+  .pb-screen canvas {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain;
+    image-rendering: pixelated;
+    display: block;
+  }
+
+  .pb-boot {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--u) * 1);
+    border: 0;
+    margin: 0;
+    padding: calc(var(--u) * 3);
+    background: radial-gradient(circle at 50% 40%, #f7f8f4, #d9dccf);
+    color: #2b2e6b;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .pb-boot[hidden] {
+    display: none;
+  }
+
+  .pb-boot-logo {
+    font-size: calc(var(--u) * 8);
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    animation: pb-drop 0.9s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+
+  .pb-boot-sub {
+    font-size: calc(var(--u) * 3.4);
+    font-weight: 700;
+    letter-spacing: 0.4em;
+    color: #4b4f9a;
+    animation: pb-fade 0.6s 0.6s both;
+  }
+
+  .pb-boot-msg {
+    margin-top: calc(var(--u) * 3);
+    font-size: calc(var(--u) * 3.6);
+    color: #444;
+    animation: pb-blink 1.6s 1.2s infinite both;
+  }
+
+  @keyframes pb-drop {
+    from {
+      transform: translateY(-120%);
+      opacity: 0;
+    }
+  }
+  @keyframes pb-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pb-blink {
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .pb-brand {
+    margin: calc(var(--u) * 2.2) 0 0;
+    text-align: center;
+    color: #c9cdd2;
+    font-size: calc(var(--u) * 3.3);
+    letter-spacing: 0.08em;
+    line-height: 1;
+  }
+
+  .pb-brand i {
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+  .pb-brand span {
+    font-weight: 800;
+    font-style: italic;
+    margin-left: 0.2em;
+  }
+
+  .pb-hinge {
+    flex: none;
+    height: calc(var(--u) * 5.5);
+    margin: calc(var(--u) * -0.6) calc(var(--u) * 8);
+    position: relative;
+    z-index: 1;
+    border-radius: calc(var(--u) * 2.75);
+    background: linear-gradient(180deg, #e9ecef, #b9c0c7 40%, #8f969e 70%, #c5cbd1);
+    box-shadow: 0 calc(var(--u) * 0.6) calc(var(--u) * 1.2) rgba(0, 0, 0, 0.3);
+  }
+
+  .pb-base {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    padding: calc(var(--u) * 9) calc(var(--u) * 6) calc(var(--u) * 4);
+    border-radius: calc(var(--u) * 2.5) calc(var(--u) * 2.5) calc(var(--u) * 7) calc(var(--u) * 7);
+  }
+
+  /* Zero specificity so each button's own rule sets its size and weight. */
+  :where(.prashboy) button {
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .pb-shoulder {
+    position: absolute;
+    top: calc(var(--u) * -0.3);
+    width: calc(var(--u) * 22);
+    height: calc(var(--u) * 7);
+    border: 0;
+    background: linear-gradient(180deg, #9aa1a9, #c7ccd2);
+    color: var(--ink);
+    font-size: calc(var(--u) * 3.2);
+    font-weight: 700;
+    box-shadow: inset 0 calc(var(--u) * -0.5) 0 rgba(0, 0, 0, 0.2);
+  }
+
+  .pb-l {
+    left: calc(var(--u) * 3);
+    border-radius: 0 0 calc(var(--u) * 5) calc(var(--u) * 1.5);
+  }
+
+  .pb-r {
+    right: calc(var(--u) * 3);
+    border-radius: 0 0 calc(var(--u) * 1.5) calc(var(--u) * 5);
+  }
+
+  .pb-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 calc(var(--u) * 2);
+  }
+
+  .pb-led {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--u) * 1.2);
+    font-size: calc(var(--u) * 2.3);
+    letter-spacing: 0.1em;
+    color: var(--ink);
+    width: calc(var(--u) * 20);
+  }
+
+  .pb-led-charge {
+    justify-content: flex-end;
+  }
+
+  .pb-led i {
+    width: calc(var(--u) * 1.8);
+    height: calc(var(--u) * 1.8);
+    border-radius: 50%;
+    background: #4b5a4b;
+    box-shadow: inset 0 0 calc(var(--u) * 0.4) rgba(0, 0, 0, 0.6);
+  }
+
+  .pb-led-charge i {
+    order: 2;
+  }
+
+  .pb-led i.is-on {
+    background: #3ee05a;
+    box-shadow: 0 0 calc(var(--u) * 1.5) #3ee05a;
+  }
+
+  .pb-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--u) * 0.8);
+    border: 0;
+    background: none;
+    padding: calc(var(--u) * 1);
+    font-size: calc(var(--u) * 2.3);
+    letter-spacing: 0.1em;
+    color: var(--ink);
+  }
+
+  .pb-menu i {
+    width: calc(var(--u) * 7);
+    height: calc(var(--u) * 3.6);
+    border-radius: calc(var(--u) * 1.8);
+    background: linear-gradient(180deg, #e7eaed, #a8afb6);
+    box-shadow:
+      0 0 0 calc(var(--u) * 0.3) var(--silver-edge),
+      0 calc(var(--u) * 0.5) 0 #7d848c;
+  }
+
+  .pb-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .pb-dpad {
+    position: relative;
+    width: calc(var(--u) * 36);
+    height: calc(var(--u) * 36);
+    flex: none;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 0, 0, 0.12) 55%, transparent 70%);
+  }
+
+  .pb-dpad-cross {
+    position: absolute;
+    inset: calc(var(--u) * 3);
+    transition: transform 0.05s;
+  }
+
+  .pb-dpad-cross::before,
+  .pb-dpad-cross::after {
+    content: "";
+    position: absolute;
+    background: linear-gradient(160deg, var(--key-hi), var(--key));
+    border-radius: calc(var(--u) * 1.5);
+    box-shadow: 0 calc(var(--u) * 1) 0 #15171a;
+  }
+
+  .pb-dpad-cross::before {
+    inset: 33% 0;
+  }
+
+  .pb-dpad-cross::after {
+    inset: 0 33%;
+  }
+
+  .pb-arrow {
+    position: absolute;
+    z-index: 1;
+    width: 0;
+    height: 0;
+    border: calc(var(--u) * 1.5) solid transparent;
+  }
+
+  .pb-up {
+    top: 7%;
+    left: 50%;
+    translate: -50% 0;
+    border-bottom-color: #6b7078;
+  }
+  .pb-down {
+    bottom: 7%;
+    left: 50%;
+    translate: -50% 0;
+    border-top-color: #6b7078;
+  }
+  .pb-left {
+    left: 7%;
+    top: 50%;
+    translate: 0 -50%;
+    border-right-color: #6b7078;
+  }
+  .pb-right {
+    right: 7%;
+    top: 50%;
+    translate: 0 -50%;
+    border-left-color: #6b7078;
+  }
+
+  .pb-dpad[data-dir~="up"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(10deg);
+  }
+  .pb-dpad[data-dir~="down"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(-10deg);
+  }
+  .pb-dpad[data-dir~="left"] .pb-dpad-cross {
+    transform: perspective(40em) rotateY(-10deg);
+  }
+  .pb-dpad[data-dir~="right"] .pb-dpad-cross {
+    transform: perspective(40em) rotateY(10deg);
+  }
+  .pb-dpad[data-dir~="up"][data-dir~="left"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(8deg) rotateY(-8deg);
+  }
+  .pb-dpad[data-dir~="up"][data-dir~="right"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(8deg) rotateY(8deg);
+  }
+  .pb-dpad[data-dir~="down"][data-dir~="left"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(-8deg) rotateY(-8deg);
+  }
+  .pb-dpad[data-dir~="down"][data-dir~="right"] .pb-dpad-cross {
+    transform: perspective(40em) rotateX(-8deg) rotateY(8deg);
+  }
+
+  .pb-ab {
+    position: relative;
+    width: calc(var(--u) * 38);
+    height: calc(var(--u) * 30);
+    flex: none;
+  }
+
+  .pb-round {
+    position: absolute;
+    width: calc(var(--u) * 16);
+    height: calc(var(--u) * 16);
+    border-radius: 50%;
+    border: 0;
+    padding: 0;
+    background: radial-gradient(circle at 35% 30%, var(--key-hi), var(--key) 70%);
+    box-shadow:
+      0 calc(var(--u) * 1) 0 #15171a,
+      0 0 0 calc(var(--u) * 1.4) rgba(0, 0, 0, 0.1);
+    color: #8b9097;
+    font-size: calc(var(--u) * 4.6);
+    font-weight: 800;
+  }
+
+  .pb-a {
+    right: 0;
+    top: 0;
+  }
+
+  .pb-b {
+    left: 0;
+    bottom: 0;
+  }
+
+  .pb-start-select {
+    display: flex;
+    justify-content: center;
+    gap: calc(var(--u) * 10);
+  }
+
+  .pb-start-select label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--u) * 1.2);
+    font-size: calc(var(--u) * 2.3);
+    letter-spacing: 0.1em;
+    color: var(--ink);
+  }
+
+  .pb-pill {
+    width: calc(var(--u) * 11);
+    height: calc(var(--u) * 4);
+    border: 0;
+    border-radius: calc(var(--u) * 2);
+    background: linear-gradient(180deg, #5c6168, #3a3e44);
+    box-shadow: 0 calc(var(--u) * 0.6) 0 #23262a;
+    rotate: -18deg;
+  }
+
+  .pb-speaker {
+    position: absolute;
+    right: calc(var(--u) * 9);
+    bottom: calc(var(--u) * 6);
+    display: grid;
+    grid-template-columns: repeat(6, calc(var(--u) * 1.4));
+    gap: calc(var(--u) * 1.1);
+    rotate: -18deg;
+  }
+
+  .pb-speaker i {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.35);
+    box-shadow: 0 calc(var(--u) * 0.2) 0 rgba(255, 255, 255, 0.6);
+  }
+
+  .is-down.pb-round,
+  .is-down.pb-pill,
+  .is-down.pb-shoulder,
+  .pb-menu:active i {
+    translate: 0 calc(var(--u) * 0.8);
+    box-shadow: 0 calc(var(--u) * 0.2) 0 #15171a;
+    filter: brightness(1.15);
+  }
+
+  /* Phone held sideways: screen in the middle, controls on either side. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .prashboy {
+      margin: 0;
+    }
+    .prashboy .pb-frame,
+    .prashboy[data-mode="app"] .pb-frame {
+      width: 100%;
+      height: 100svh;
+      aspect-ratio: auto;
+    }
+    /* Break out of the page column so the controls get the full width. */
+    .prashboy[data-mode="embed"] .pb-frame {
+      width: 100vw;
+      margin-left: calc(50% - 50vw);
+    }
+    .pb-device {
+      --u: 1cqh;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        "l screen r"
+        "dpad screen ab"
+        "select screen start";
+      background: linear-gradient(165deg, var(--silver-hi), var(--silver) 45%, var(--silver-lo));
+      border-radius: calc(var(--u) * 6);
+      padding: calc(var(--u) * 3) calc(var(--u) * 4);
+      gap: 0 calc(var(--u) * 4);
+    }
+    .pb-lid,
+    .pb-base,
+    .pb-controls,
+    .pb-top-row,
+    .pb-start-select {
+      display: contents;
+    }
+    .pb-hinge,
+    .pb-speaker,
+    .pb-led {
+      display: none;
+    }
+    .pb-bezel {
+      grid-area: screen;
+      align-self: center;
+      width: calc(var(--u) * 120);
+      padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 2);
+    }
+    .pb-brand {
+      margin-top: calc(var(--u) * 1.6);
+    }
+    .pb-shoulder {
+      position: static;
+      width: calc(var(--u) * 22);
+      height: calc(var(--u) * 9);
+      border-radius: calc(var(--u) * 4);
+    }
+    .pb-l {
+      grid-area: l;
+      justify-self: start;
+    }
+    .pb-r {
+      grid-area: r;
+      justify-self: end;
+    }
+    .pb-dpad {
+      grid-area: dpad;
+      align-self: center;
+      justify-self: center;
+      width: calc(var(--u) * 38);
+      height: calc(var(--u) * 38);
+    }
+    .pb-ab {
+      grid-area: ab;
+      align-self: center;
+      justify-self: center;
+      width: calc(var(--u) * 38);
+      height: calc(var(--u) * 32);
+    }
+    .pb-round {
+      width: calc(var(--u) * 17);
+      height: calc(var(--u) * 17);
+    }
+    .pb-start-select label:first-child {
+      grid-area: select;
+      justify-self: center;
+    }
+    .pb-start-select label:last-child {
+      grid-area: start;
+      justify-self: center;
+    }
+    .pb-menu {
+      grid-area: r;
+      justify-self: start;
+      align-self: center;
+    }
+    .pb-note {
+      display: none;
+    }
+  }
+
+  /* Sheets: the game shelf and the in-game menu. */
+  .pb-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(8, 10, 12, 0.55);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+
+  .pb-sheet[hidden] {
+    display: none;
+  }
+
+  .pb-panel {
+    width: min(100%, 32rem);
+    max-height: 88svh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: linear-gradient(180deg, #f7f8f9, #e6e9ec);
+    color: #1d2024;
+    border-radius: 1.2rem 1.2rem 0 0;
+    padding: 1rem 1rem calc(1.2rem + env(safe-area-inset-bottom));
+    font-size: 16px;
+    line-height: 1.4;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.35);
+    animation: pb-rise 0.22s ease-out;
+  }
+
+  @keyframes pb-rise {
+    from {
+      transform: translateY(30%);
+      opacity: 0;
+    }
+  }
+
+  .pb-panel [hidden] {
+    display: none !important;
+  }
+
+  .pb-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.8rem;
+  }
+
+  .pb-panel h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 800;
+    font-style: italic;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+
+  .pb-panel h3 {
+    margin: 1.1rem 0 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #5c636b;
+  }
+
+  .pb-close {
+    border: 0;
+    background: none;
+    font-weight: 700;
+    color: #3443a8 !important;
+    padding: 0.4rem 0.2rem;
+    font-size: 1rem;
+  }
+
+  .pb-shelf {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap: 0.8rem;
+  }
+
+  .pb-empty {
+    grid-column: 1 / -1;
+    margin: 0.2rem 0 0.4rem;
+    color: #4b5158;
+  }
+
+  .pb-cart {
+    position: relative;
+  }
+
+  .pb-cart-play {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    padding: 0.45rem 0.45rem 0.6rem;
+    border-radius: 0.5rem 0.5rem 0.3rem 0.3rem;
+    background: linear-gradient(180deg, #5d636b, #3f444b);
+    color: #fff !important;
+    box-shadow: 0 3px 0 #2a2e33;
+  }
+
+  .pb-cart-play:active {
+    translate: 0 2px;
+    box-shadow: 0 1px 0 #2a2e33;
+  }
+
+  .pb-cart-label {
+    display: flex;
+    align-items: flex-end;
+    aspect-ratio: 3 / 2;
+    border-radius: 0.3rem;
+    overflow: hidden;
+    background-size: cover;
+    background-position: center;
+    image-rendering: pixelated;
+    padding: 0.3rem;
+  }
+
+  .pb-cart-label b {
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 0.2rem;
+    padding: 0.05rem 0.3rem;
+  }
+
+  .pb-cart-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    line-height: 1.2;
+    min-height: 2.4em;
+  }
+
+  .pb-cart-meta {
+    display: block;
+    font-size: 0.7rem;
+    opacity: 0.75;
+  }
+
+  .pb-cart-remove {
+    position: absolute;
+    top: -0.45rem;
+    right: -0.45rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    border: 2px solid #f4f5f6;
+    background: #8a9099;
+    color: #fff !important;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .pb-confirm {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    background: rgba(29, 32, 36, 0.94);
+    color: #fff;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+
+  .pb-confirm button {
+    border: 0;
+    border-radius: 0.4rem;
+    padding: 0.35rem;
+    font-weight: 700;
+    background: #e9ecef;
+    color: #1d2024 !important;
+  }
+
+  .pb-confirm button[data-yes] {
+    background: #c2402a;
+    color: #fff !important;
+  }
+
+  .pb-add {
+    display: block;
+    margin-top: 1rem;
+    text-align: center;
+    padding: 0.85rem;
+    border-radius: 0.8rem;
+    background: #3443a8;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .pb-add input,
+  .pb-file-btn input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .pb-add:focus-within,
+  .pb-file-btn:focus-within {
+    outline: 2px solid #3443a8;
+    outline-offset: 2px;
+  }
+
+  .pb-fine,
+  .pb-tip,
+  .pb-now {
+    font-size: 0.8rem;
+    color: #4b5158;
+    margin: 0.7rem 0 0;
+  }
+
+  .pb-now {
+    margin: 0 0 0.6rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1d2024;
+  }
+
+  .pb-tip {
+    background: #fff6d8;
+    border-radius: 0.6rem;
+    padding: 0.6rem 0.7rem;
+    color: #5a4a12;
+  }
+
+  .pb-wide {
+    display: block;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid #c9ced4;
+    border-radius: 0.7rem;
+    background: #fff;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .pb-primary {
+    background: #3443a8;
+    border-color: #3443a8;
+    color: #fff !important;
+  }
+
+  .pb-danger {
+    color: #b3361f !important;
+  }
+
+  .pb-toggles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 0.5rem;
+  }
+
+  .pb-slots {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .pb-slots li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #d3d7dc;
+  }
+
+  .pb-slots li > span {
+    flex: 1;
+    font-size: 0.85rem;
+  }
+
+  .pb-slots li > span small {
+    display: block;
+    color: #5c636b;
+  }
+
+  .pb-slots button {
+    border: 1px solid #c9ced4;
+    border-radius: 0.5rem;
+    background: #fff;
+    padding: 0.45rem 0.8rem;
+    font-weight: 700;
+  }
+
+  .pb-slots button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .pb-toast {
+    position: sticky;
+    bottom: 0;
+    margin: 0.8rem 0 0;
+    min-height: 1.2em;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #2d6a33;
+    text-align: center;
+  }
+
+  .pb-note {
+    max-width: 34rem;
+    margin: 1.2rem auto 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--muted, #555);
+    text-align: center;
+  }
+
+  .pb-note kbd {
+    font-family: inherit;
+    font-size: 0.9em;
+    border: 1px solid var(--line, #bbb);
+    border-radius: 3px;
+    padding: 0 0.25em;
+  }
+
+  @media (hover: none) {
+    .pb-keys {
+      display: none;
+    }
+  }
+
+  .prashboy[data-mode="app"] .pb-note {
+    margin: 0.6rem auto 0;
+    padding: 0 1rem;
+    color: #9aa0a7;
+    font-size: 0.7rem;
+  }
+
+  .prashboy[data-mode="app"] .pb-note a {
+    color: inherit;
+  }
+</style>
+
+<script>
+  import {
+    baseOf,
+    describeRom,
+    emptyLibrary,
+    isRomName,
+    labelHue,
+    reconcile,
+    safeFileName,
+    shelfOrder,
+    type GameEntry,
+    type Library,
+  } from '../../games/prashboy/rom';
+
+  // The core lives in public/ because its pthread workers load from its own
+  // URL, which a bundler would rename. The version folder busts caches.
+  const CORE_URL = '/prashboy/core/2.5.1/mgba.js';
+  const GAMES = '/data/games';
+  const SAVES = '/data/saves';
+  const STATES = '/data/states';
+  const SHOTS = '/data/screenshots';
+  const LIBRARY_FILE = '/data/prashboy-library.json';
+  const SLOTS = [1, 2, 3];
+
+  // The slice of the core's API this component uses (see mgba.d.ts upstream).
+  interface EmFS {
+    readdir(path: string): string[];
+    readFile(path: string, opts?: { encoding: 'utf8' }): any;
+    writeFile(path: string, data: string | Uint8Array): void;
+    unlink(path: string): void;
+    rename(from: string, to: string): void;
+    analyzePath(path: string): { exists: boolean };
+    stat(path: string): { mtime: Date };
+  }
+  interface Core {
+    FS: EmFS;
+    FSInit(): Promise<void>;
+    FSSync(): Promise<void>;
+    loadGame(path: string): boolean;
+    quitGame(): void;
+    quickReload(): void;
+    pauseGame(): void;
+    resumeGame(): void;
+    buttonPress(name: string): void;
+    buttonUnpress(name: string): void;
+    bindKey(key: string, input: string): void;
+    toggleInput(enabled: boolean): void;
+    saveState(slot: number): boolean;
+    loadState(slot: number): boolean;
+    forceAutoSaveState(): boolean;
+    getSave(): Uint8Array | null;
+    screenshot(name?: string): boolean;
+    setVolume(v: number): void;
+    setFastForwardMultiplier(m: number): void;
+    setCoreSettings(s: Record<string, unknown>): void;
+    addCoreCallbacks(c: Record<string, (() => void) | null>): void;
+    autoSaveStateName?: string;
+    SDL2?: { audioContext?: AudioContext };
+  }
+
+  const root = document.querySelector<HTMLElement>('[data-prashboy]')!;
+  const $ = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
+
+  const canvas = $<HTMLCanvasElement>('[data-canvas]');
+  const boot = $<HTMLButtonElement>('[data-boot]');
+  const bootMsg = $('[data-boot-msg]');
+  const led = $('[data-led]');
+  const sheet = $('[data-sheet]');
+  const panelTitle = $('[data-panel-title]');
+  const shelfView = $('[data-view="shelf"]');
+  const menuView = $('[data-view="menu"]');
+  const shelfEl = $('[data-shelf]');
+  const slotsEl = $('[data-slots]');
+  const toastEl = $('[data-toast]');
+  const soundBtn = $<HTMLButtonElement>('[data-sound]');
+  const turboBtn = $<HTMLButtonElement>('[data-turbo]');
+
+  let core: Core | null = null;
+  let library: Library = emptyLibrary();
+  let current: GameEntry | null = null;
+  let sheetOpen = false;
+  let muted = readPref('prashboy:muted') === '1';
+  let turbo = false;
+  const coverUrls = new Map<string, string>();
+
+  function readPref(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function writePref(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Private mode or blocked storage: the preference just won't stick.
+    }
+  }
+
+  function setBoot(message: string | null) {
+    boot.hidden = message === null;
+    if (message !== null) bootMsg.textContent = message;
+  }
+
+  let toastTimer = 0;
+  function toast(message: string) {
+    toastEl.textContent = message;
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => (toastEl.textContent = ''), 2600);
+  }
+
+  // ---- persistence ----
+
+  // IndexedDB writes are batched by the core; chain syncs so they never overlap.
+  let syncChain = Promise.resolve();
+  let syncTimer = 0;
+  function syncNow(): Promise<void> {
+    clearTimeout(syncTimer);
+    syncChain = syncChain.then(() => core?.FSSync()).catch((e) => console.warn('[prashboy] sync', e));
+    return syncChain;
+  }
+  function syncSoon() {
+    clearTimeout(syncTimer);
+    syncTimer = window.setTimeout(syncNow, 800);
+  }
+
+  function exists(path: string): boolean {
+    return !!core && core.FS.analyzePath(path).exists;
+  }
+
+  function writeLibrary() {
+    core?.FS.writeFile(LIBRARY_FILE, JSON.stringify(library));
+  }
+
+  function loadLibrary() {
+    if (!core) return;
+    let stored: unknown = null;
+    try {
+      if (exists(LIBRARY_FILE)) stored = JSON.parse(core.FS.readFile(LIBRARY_FILE, { encoding: 'utf8' }));
+    } catch {
+      stored = null;
+    }
+    const files = core.FS.readdir(GAMES);
+    library = reconcile(
+      stored,
+      files,
+      (file) => describeRom(file, core!.FS.readFile(`${GAMES}/${file}`)),
+      new Date().toISOString(),
+    );
+    writeLibrary();
+  }
+
+  // ---- covers: a screenshot of the game, shown on its cartridge ----
+
+  const coverPath = (file: string) => `${SHOTS}/${baseOf(file)}.cover.png`;
+
+  function captureCover() {
+    if (!core || !current) return;
+    const target = coverPath(current.file);
+    const before = new Set(core.FS.readdir(SHOTS));
+    if (!core.screenshot(`${baseOf(current.file)}.cover.png`)) return;
+    if (!exists(target)) {
+      // Older cores name screenshots themselves; adopt whatever just appeared.
+      const made = core.FS.readdir(SHOTS).find((f) => !before.has(f) && f.endsWith('.png'));
+      if (!made) return;
+      core.FS.rename(`${SHOTS}/${made}`, target);
+    }
+    const old = coverUrls.get(current.file);
+    if (old) URL.revokeObjectURL(old);
+    coverUrls.delete(current.file);
+  }
+
+  function coverUrl(file: string): string | null {
+    if (coverUrls.has(file)) return coverUrls.get(file)!;
+    const path = coverPath(file);
+    if (!exists(path)) return null;
+    const url = URL.createObjectURL(new Blob([core!.FS.readFile(path)], { type: 'image/png' }));
+    coverUrls.set(file, url);
+    return url;
+  }
+
+  // ---- the shelf ----
+
+  function relativeDay(iso?: string): string {
+    if (!iso) return 'never played';
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (days <= 0) return 'played today';
+    if (days === 1) return 'played yesterday';
+    if (days < 30) return `played ${days}d ago`;
+    return `played ${new Date(iso).toLocaleDateString()}`;
+  }
+
+  function renderShelf() {
+    shelfEl.replaceChildren();
+    const games = shelfOrder(library);
+    if (games.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'pb-empty';
+      p.textContent =
+        'Your shelf is empty. Add a ROM file you own and it will live here, ready to play next time.';
+      shelfEl.append(p);
+      return;
+    }
+    for (const game of games) {
+      const cart = document.createElement('div');
+      cart.className = 'pb-cart';
+
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'pb-cart-play';
+      play.setAttribute('aria-label', `Play ${game.title}`);
+      const label = document.createElement('span');
+      label.className = 'pb-cart-label';
+      const cover = coverUrl(game.file);
+      const hue = labelHue(game.title);
+      label.style.backgroundImage = cover
+        ? `url("${cover}")`
+        : `linear-gradient(135deg, hsl(${hue} 70% 55%), hsl(${(hue + 40) % 360} 65% 35%))`;
+      const chip = document.createElement('b');
+      chip.textContent = game.platform;
+      label.append(chip);
+      const title = document.createElement('span');
+      title.className = 'pb-cart-title';
+      title.textContent = game.title;
+      const meta = document.createElement('span');
+      meta.className = 'pb-cart-meta';
+      meta.textContent = current?.file === game.file ? 'playing now' : relativeDay(game.lastPlayed);
+      play.append(label, title, meta);
+      play.addEventListener('click', () => startGame(game.file));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'pb-cart-remove';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', `Remove ${game.title}`);
+      remove.addEventListener('click', () => confirmRemove(cart, game));
+
+      cart.append(play, remove);
+      shelfEl.append(cart);
+    }
+  }
+
+  function confirmRemove(cart: HTMLElement, game: GameEntry) {
+    const box = document.createElement('div');
+    box.className = 'pb-confirm';
+    box.innerHTML = '<span>Remove from shelf? Saves stay, so re-adding it picks up where you left off.</span>';
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.dataset.yes = '';
+    yes.textContent = 'Remove';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.textContent = 'Keep';
+    box.append(yes, no);
+    no.addEventListener('click', () => box.remove());
+    yes.addEventListener('click', () => removeGame(game));
+    cart.append(box);
+    yes.focus();
+  }
+
+  function removeGame(game: GameEntry) {
+    if (!core) return;
+    if (current?.file === game.file) stopGame();
+    try {
+      core.FS.unlink(`${GAMES}/${game.file}`);
+    } catch {
+      // Already gone.
+    }
+    delete library.games[game.file];
+    writeLibrary();
+    syncNow();
+    renderShelf();
+    toast(`Removed ${game.title}`);
+  }
+
+  async function addFiles(files: FileList) {
+    if (!core) return;
+    let added: GameEntry | null = null;
+    const skipped: string[] = [];
+    for (const file of Array.from(files)) {
+      if (!isRomName(file.name)) {
+        skipped.push(file.name);
+        continue;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const name = safeFileName(file.name, core.FS.readdir(GAMES));
+      core.FS.writeFile(`${GAMES}/${name}`, bytes);
+      added = { file: name, ...describeRom(file.name, bytes), addedAt: new Date().toISOString() };
+      library.games[name] = added;
+    }
+    writeLibrary();
+    await syncNow();
+    // Ask the browser not to evict the shelf under storage pressure.
+    navigator.storage?.persist?.().catch(() => {});
+    renderShelf();
+    if (!current && Object.keys(library.games).length) setBoot('Tap to choose a game');
+    if (skipped.length) toast(`Skipped ${skipped.join(', ')}: not a .gba, .gbc, .gb, or .zip file`);
+    else if (added) toast(`Added ${added.title}`);
+  }
+
+  // ---- playing ----
+
+  function stopGame() {
+    if (!core || !current) return;
+    try {
+      core.forceAutoSaveState();
+      captureCover();
+      core.quitGame();
+    } catch (e) {
+      console.warn('[prashboy] quit', e);
+    }
+    current = null;
+    core.toggleInput(false);
+    led.classList.remove('is-on');
+    setBoot('Tap to choose a game');
+    syncNow();
+  }
+
+  function startGame(file: string) {
+    if (!core) return;
+    if (current?.file === file) {
+      closeSheet();
+      return;
+    }
+    stopGame();
+    const ok = core.loadGame(`${GAMES}/${file}`);
+    if (!ok) {
+      toast("That file didn't load. Is it a GB, GBC, or GBA ROM?");
+      setBoot('Tap to choose a game');
+      return;
+    }
+    current = library.games[file];
+    current.lastPlayed = new Date().toISOString();
+    writeLibrary();
+    syncSoon();
+    applyAudio();
+    core.setFastForwardMultiplier(turbo ? 2 : 1);
+    led.classList.add('is-on');
+    setBoot(null);
+    core.toggleInput(!sheetOpen);
+    closeSheet();
+  }
+
+  function applyAudio() {
+    core?.setVolume(muted ? 0 : 1);
+    soundBtn.textContent = `Sound: ${muted ? 'Off' : 'On'}`;
+    soundBtn.setAttribute('aria-pressed', String(!muted));
+  }
+
+  // iOS only starts audio inside a user gesture, so nudge it on every touch.
+  function wakeAudio() {
+    const ctx = core?.SDL2?.audioContext;
+    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  }
+
+  // ---- save states ----
+
+  const statePath = (slot: number) => `${STATES}/${baseOf(current!.file)}.ss${slot}`;
+
+  function renderSlots() {
+    slotsEl.replaceChildren();
+    for (const slot of SLOTS) {
+      const li = document.createElement('li');
+      const info = document.createElement('span');
+      const has = !!current && exists(statePath(slot));
+      const when = has ? core!.FS.stat(statePath(slot)).mtime : null;
+      info.innerHTML = `Slot ${slot}<small></small>`;
+      info.querySelector('small')!.textContent = when
+        ? when.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : 'Empty';
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.textContent = 'Save';
+      save.addEventListener('click', () => {
+        if (core?.saveState(slot)) {
+          syncNow();
+          renderSlots();
+          toast(`Saved to slot ${slot}`);
+        } else toast("Couldn't save that slot");
+      });
+      const load = document.createElement('button');
+      load.type = 'button';
+      load.textContent = 'Load';
+      load.disabled = !has;
+      load.addEventListener('click', () => {
+        if (core?.loadState(slot)) {
+          closeSheet();
+        } else toast("Couldn't load that slot");
+      });
+      li.append(info, save, load);
+      slotsEl.append(li);
+    }
+  }
+
+  // ---- sheets ----
+
+  function openSheet(view: 'shelf' | 'menu') {
+    if (!core) return;
+    if (current) {
+      captureCover();
+      core.pauseGame();
+    }
+    core.toggleInput(false);
+    releaseAll();
+    sheetOpen = true;
+    shelfView.hidden = view !== 'shelf';
+    menuView.hidden = view !== 'menu';
+    panelTitle.textContent = view === 'shelf' ? 'Game shelf' : 'Menu';
+    if (view === 'shelf') renderShelf();
+    else {
+      $('[data-now]').textContent = current ? current.title : '';
+      renderSlots();
+    }
+    toastEl.textContent = '';
+    sheet.hidden = false;
+    $<HTMLButtonElement>('[data-close]').focus();
+  }
+
+  function closeSheet() {
+    if (!sheetOpen) return;
+    sheetOpen = false;
+    sheet.hidden = true;
+    core?.toggleInput(!!current);
+    if (current) core?.resumeGame();
+    canvas.focus?.();
+  }
+
+  function menuPressed() {
+    if (!core) return;
+    if (sheetOpen) closeSheet();
+    else openSheet(current ? 'menu' : 'shelf');
+  }
+
+  $('[data-close]').addEventListener('click', closeSheet);
+  $('[data-resume]').addEventListener('click', closeSheet);
+  $('[data-shelf-open]').addEventListener('click', () => openSheet('shelf'));
+  sheet.addEventListener('click', (e) => {
+    if (e.target === sheet) closeSheet();
+  });
+  $('[data-menu]').addEventListener('click', () => {
+    wakeAudio();
+    menuPressed();
+  });
+  boot.addEventListener('click', () => {
+    wakeAudio();
+    if (core) openSheet('shelf');
+  });
+
+  $<HTMLInputElement>('[data-file]').addEventListener('change', async (e) => {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files?.length) await addFiles(input.files);
+    input.value = '';
+  });
+
+  soundBtn.addEventListener('click', () => {
+    muted = !muted;
+    writePref('prashboy:muted', muted ? '1' : '0');
+    applyAudio();
+  });
+
+  turboBtn.addEventListener('click', () => {
+    turbo = !turbo;
+    core?.setFastForwardMultiplier(turbo ? 2 : 1);
+    turboBtn.textContent = `Fast forward: ${turbo ? 'On' : 'Off'}`;
+    turboBtn.setAttribute('aria-pressed', String(turbo));
+  });
+
+  $('[data-download]').addEventListener('click', () => {
+    const data = core?.getSave();
+    if (!current || !data) {
+      toast('No save file yet. Save in the game first.');
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
+    a.download = `${baseOf(current.file)}.sav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  // Restoring a save replaces the game's battery save, then restarts so the
+  // game reads it. The resume point is dropped, or it would win over the save.
+  $<HTMLInputElement>('[data-restore]').addEventListener('change', async (e) => {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!core || !current || !file) return;
+    if (!file.name.toLowerCase().endsWith('.sav')) {
+      toast('Pick a .sav file');
+      return;
+    }
+    core.FS.writeFile(`${SAVES}/${baseOf(current.file)}.sav`, new Uint8Array(await file.arrayBuffer()));
+    restart();
+    toast('Save restored');
+  });
+
+  function restart() {
+    if (!core || !current) return;
+    const auto = core.autoSaveStateName;
+    if (auto && exists(auto)) core.FS.unlink(auto);
+    const file = current.file;
+    core.quitGame();
+    current = null;
+    syncNow();
+    startGame(file);
+  }
+
+  $('[data-restart]').addEventListener('click', restart);
+
+  // ---- controls ----
+
+  // Games read input once a frame, so a quick tap is held for a few frames
+  // or its press and release could land between two reads and be missed.
+  const MIN_HOLD_MS = 70;
+  const held = new Map<string, number>();
+  const pendingRelease = new Map<string, number>();
+  function press(button: string) {
+    clearTimeout(pendingRelease.get(button));
+    pendingRelease.delete(button);
+    if (held.has(button)) return;
+    held.set(button, performance.now());
+    core?.buttonPress(button);
+  }
+  function release(button: string) {
+    const since = held.get(button);
+    if (since === undefined || pendingRelease.has(button)) return;
+    const unpress = () => {
+      pendingRelease.delete(button);
+      held.delete(button);
+      core?.buttonUnpress(button);
+    };
+    const wait = MIN_HOLD_MS - (performance.now() - since);
+    if (wait > 0) pendingRelease.set(button, window.setTimeout(unpress, wait));
+    else unpress();
+  }
+  function releaseAll() {
+    for (const b of [...held.keys()]) release(b);
+    root.querySelectorAll('.is-down').forEach((el) => el.classList.remove('is-down'));
+    dpad.removeAttribute('data-dir');
+  }
+
+  // Face, shoulder, and start/select buttons. Touch pointers are captured by
+  // the first element they hit; releasing that lets a thumb slide from B to A.
+  root.querySelectorAll<HTMLButtonElement>('[data-btn]').forEach((el) => {
+    const name = el.dataset.btn!;
+    const down = () => {
+      if (sheetOpen || !current) return;
+      el.classList.add('is-down');
+      press(name);
+    };
+    const up = () => {
+      el.classList.remove('is-down');
+      release(name);
+    };
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      wakeAudio();
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      down();
+    });
+    el.addEventListener('pointerenter', (e) => {
+      if (e.buttons || e.pointerType === 'touch') down();
+    });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+
+  // The D-pad reads the thumb's angle from its center so rolling between
+  // directions works. Diagonals get a narrower slice than straight directions.
+  const dpad = $('[data-dpad]');
+  let dpadPointer: number | null = null;
+
+  function dpadAt(e: PointerEvent) {
+    const r = dpad.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2);
+    const dy = e.clientY - (r.top + r.height / 2);
+    const dirs = new Set<string>();
+    if (Math.hypot(dx, dy) > r.width * 0.1) {
+      const deg = (Math.atan2(dy, dx) * 180) / Math.PI; // 0 = right, 90 = down
+      const near = (target: number, half: number) => Math.abs(((deg - target + 540) % 360) - 180) <= half;
+      if (near(0, 67.5)) dirs.add('Right');
+      if (near(180, 67.5)) dirs.add('Left');
+      if (near(90, 67.5)) dirs.add('Down');
+      if (near(-90, 67.5)) dirs.add('Up');
+    }
+    for (const d of ['Up', 'Down', 'Left', 'Right']) (dirs.has(d) ? press : release)(d);
+    dpad.dataset.dir = [...dirs].join(' ').toLowerCase();
+  }
+
+  function dpadEnd() {
+    dpadPointer = null;
+    for (const d of ['Up', 'Down', 'Left', 'Right']) release(d);
+    dpad.removeAttribute('data-dir');
+  }
+
+  dpad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    wakeAudio();
+    if (sheetOpen || !current || dpadPointer !== null) return;
+    dpadPointer = e.pointerId;
+    try {
+      dpad.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer already ended; pointerup will tidy up.
+    }
+    dpadAt(e);
+  });
+  dpad.addEventListener('pointermove', (e) => {
+    if (e.pointerId === dpadPointer) dpadAt(e);
+  });
+  dpad.addEventListener('pointerup', (e) => e.pointerId === dpadPointer && dpadEnd());
+  dpad.addEventListener('pointercancel', (e) => e.pointerId === dpadPointer && dpadEnd());
+  dpad.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Esc opens the menu; the core reads the rest of the keyboard itself.
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && core) {
+      e.preventDefault();
+      menuPressed();
+    }
+  });
+
+  // Leaving the tab: pause, and capture a resume point plus a cover.
+  document.addEventListener('visibilitychange', () => {
+    if (!core || !current) return;
+    if (document.hidden) {
+      releaseAll();
+      core.forceAutoSaveState();
+      captureCover();
+      core.pauseGame();
+      syncNow();
+    } else if (!sheetOpen) {
+      core.resumeGame();
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    if (core && current) {
+      core.forceAutoSaveState();
+      syncNow();
+    }
+  });
+
+  // ---- boot ----
+
+  function isIosBrowserTab(): boolean {
+    const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform));
+    const standalone = (navigator as any).standalone === true || matchMedia('(display-mode: standalone)').matches;
+    return ios && !standalone;
+  }
+
+  async function powerOn() {
+    if (!window.crossOriginIsolated) {
+      setBoot("This browser can't run Prash Boy here. Try reloading, or a recent Safari or Chrome.");
+      return;
+    }
+    try {
+      // An absolute URL keeps the dev server from rewriting the import.
+      const { default: mGBA } = await import(/* @vite-ignore */ new URL(CORE_URL, location.href).href);
+      const instance: Core = await mGBA({ canvas });
+      await instance.FSInit();
+      instance.setCoreSettings({
+        autoSaveStateEnable: true,
+        restoreAutoSaveStateOnLoad: true,
+        autoSaveStateTimerIntervalSeconds: 20,
+      });
+      instance.addCoreCallbacks({ saveDataUpdatedCallback: syncSoon });
+      // Keyboard layout that matches mGBA's desktop defaults.
+      const keys: [string, string][] = [
+        ['Up', 'Up'],
+        ['Down', 'Down'],
+        ['Left', 'Left'],
+        ['Right', 'Right'],
+        ['X', 'A'],
+        ['Z', 'B'],
+        ['A', 'L'],
+        ['S', 'R'],
+        ['Return', 'Start'],
+        ['Backspace', 'Select'],
+      ];
+      for (const [key, input] of keys) instance.bindKey(key, input);
+      // Leave the page's keys alone until a game is running.
+      instance.toggleInput(false);
+      core = instance;
+      loadLibrary();
+      $('[data-ios-tip]').hidden = !isIosBrowserTab();
+      setBoot(Object.keys(library.games).length ? 'Tap to choose a game' : 'Tap to add your first game');
+    } catch (e) {
+      console.error('[prashboy] boot', e);
+      setBoot('Prash Boy failed to start. Reload to try again.');
+    }
+  }
+
+  applyAudio();
+  powerOn();
+</script>

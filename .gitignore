@@ -25,3 +25,6 @@ pnpm-debug.log*
 
 # source photos, not used by the build
 PrashPics/
+
+# Personal Claude Code settings
+.claude/settings.local.json

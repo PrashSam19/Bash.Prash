@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2e35"/><stop offset="1" stop-color="#101114"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3f5f7"/><stop offset=".5" stop-color="#cfd4d9"/><stop offset="1" stop-color="#9ea6ae"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect x="136" y="56" width="240" height="190" rx="26" fill="url(#silver)"/>
+  <rect x="160" y="78" width="192" height="146" rx="14" fill="#1d2024"/>
+  <rect x="176" y="92" width="160" height="106" rx="4" fill="#dfe3d4"/>
+  <text x="256" y="152" font-family="Helvetica, Arial, sans-serif" font-size="30" font-weight="900" font-style="italic" fill="#2b2e6b" text-anchor="middle">PRASH</text>
+  <text x="256" y="182" font-family="Helvetica, Arial, sans-serif" font-size="30" font-weight="900" font-style="italic" fill="#2b2e6b" text-anchor="middle">BOY</text>
+  <rect x="160" y="244" width="192" height="20" rx="10" fill="#aab1b9"/>
+  <rect x="136" y="258" width="240" height="198" rx="26" fill="url(#silver)"/>
+  <rect x="166" y="318" width="64" height="22" rx="5" fill="#2c2f34"/>
+  <rect x="187" y="297" width="22" height="64" rx="5" fill="#2c2f34"/>
+  <circle cx="330" cy="310" r="17" fill="#2c2f34"/>
+  <circle cx="292" cy="342" r="17" fill="#2c2f34"/>
+  <rect x="216" y="398" width="30" height="10" rx="5" fill="#4a4e55" transform="rotate(-18 231 403)"/>
+  <rect x="266" y="398" width="30" height="10" rx="5" fill="#4a4e55" transform="rotate(-18 281 403)"/>
+</svg>

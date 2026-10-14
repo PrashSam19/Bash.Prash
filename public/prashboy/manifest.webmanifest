@@ -1,0 +1,16 @@
+{
+  "name": "Prash Boy Advance SP",
+  "short_name": "Prash Boy",
+  "description": "A silver handheld in your browser. Bring your own GB, GBC, or GBA games.",
+  "start_url": "/prashboy/",
+  "scope": "/prashboy/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#16181c",
+  "theme_color": "#16181c",
+  "icons": [
+    { "src": "/prashboy/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/prashboy/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/prashboy/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
