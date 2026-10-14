@@ -1,0 +1,392 @@
+---
+// Ask Prash chat. The disclaimer has to be acknowledged before the chat opens.
+// Milestone 1 runs on canned replies in the browser; nothing is sent anywhere.
+import { LIMITS } from '../../tools/askprash/chat';
+---
+
+<section class="askprash" aria-label="Ask Prash">
+  <div class="askprash-warning" role="note" data-warning>
+    <p class="askprash-warning-head">This is NOT me.</p>
+    <p>
+      None of the opinions, suggested actions, or advice given by this bot are representative of my
+      personal takes. It's a bot built to sound like me, and it gets things wrong.
+    </p>
+    <button type="button" data-ack>Got it, let me in</button>
+  </div>
+
+  <div class="askprash-chat" data-chat hidden>
+    <p class="askprash-preview">
+      Preview build: canned replies only. Nothing you type leaves your browser.
+    </p>
+
+    <ol class="askprash-log" data-log aria-live="polite"></ol>
+
+    <form class="askprash-form" data-form>
+      <label class="askprash-sr" for="askprash-input">Your question</label>
+      <textarea
+        id="askprash-input"
+        data-input
+        rows="2"
+        maxlength={LIMITS.maxChars}
+        placeholder="Ask me something…"
+        autocomplete="off"></textarea>
+      <div class="askprash-bar">
+        <span class="askprash-meta" data-meta></span>
+        <button type="button" data-reset>New chat</button>
+        <button type="submit" data-send>Send</button>
+      </div>
+    </form>
+    <p class="askprash-status" data-status aria-live="polite"></p>
+  </div>
+</section>
+
+<style is:global>
+  /* Global on purpose: messages are created by script, so Astro's scoped
+     styles would miss them. Every rule is prefixed with .askprash. */
+  .askprash {
+    margin: 1.5rem 0 2.5rem;
+    max-width: 36rem;
+    text-shadow: none;
+  }
+
+  .askprash button,
+  .askprash textarea {
+    font: inherit;
+    color: var(--fg);
+    background: var(--scrim);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.3rem 0.8rem;
+  }
+
+  .askprash button {
+    cursor: pointer;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .askprash button:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .askprash button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .askprash :is(button, textarea):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .askprash-warning {
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    background: var(--scrim);
+  }
+
+  .askprash-warning-head {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    line-height: 1.1;
+    color: var(--accent);
+    margin-bottom: 0.4em;
+  }
+
+  .askprash-warning.acked {
+    border-width: 1px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .askprash-warning.acked .askprash-warning-head {
+    font-size: 1.1rem;
+  }
+
+  .askprash-warning.acked p:last-of-type {
+    margin-bottom: 0;
+  }
+
+  .askprash-warning.acked [data-ack] {
+    display: none;
+  }
+
+  .askprash-chat {
+    margin-top: 1.25rem;
+  }
+
+  .askprash-preview {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .askprash-log {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .askprash-msg {
+    max-width: 85%;
+    padding: 0.55rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--scrim);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .askprash-msg[data-role="user"] {
+    align-self: flex-end;
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--scrim));
+  }
+
+  .askprash-msg[data-role="assistant"] {
+    align-self: flex-start;
+  }
+
+  .askprash-who {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 0.15rem;
+  }
+
+  .askprash-msg.thinking .askprash-body::after {
+    content: "…";
+    animation: askprash-blink 1s steps(2, start) infinite;
+  }
+
+  @keyframes askprash-blink {
+    to {
+      visibility: hidden;
+    }
+  }
+
+  .askprash-sources {
+    margin: 0.4rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: normal;
+  }
+
+  .askprash-sources a {
+    margin-left: 0.4rem;
+  }
+
+  .askprash-form textarea {
+    display: block;
+    width: 100%;
+    resize: vertical;
+    min-height: 3.2rem;
+    padding: 0.5rem 0.7rem;
+  }
+
+  .askprash-form textarea::placeholder {
+    color: var(--muted);
+  }
+
+  .askprash-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .askprash-meta {
+    margin-right: auto;
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .askprash-status {
+    margin-top: 0.5rem;
+    min-height: 1.5em;
+    color: var(--accent);
+    font-size: 0.9rem;
+  }
+
+  .askprash-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .askprash-msg.thinking .askprash-body::after {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  import { LIMITS, cannedBackend, checkMessage, isSafeHref, questionsAsked, type Turn } from '../../tools/askprash/chat';
+
+  const ACK_KEY = 'askprash.ack';
+
+  const root = document.querySelector<HTMLElement>('.askprash')!;
+  const warning = root.querySelector<HTMLElement>('[data-warning]')!;
+  const ackButton = root.querySelector<HTMLButtonElement>('[data-ack]')!;
+  const chat = root.querySelector<HTMLElement>('[data-chat]')!;
+  const log = root.querySelector<HTMLOListElement>('[data-log]')!;
+  const form = root.querySelector<HTMLFormElement>('[data-form]')!;
+  const input = root.querySelector<HTMLTextAreaElement>('[data-input]')!;
+  const meta = root.querySelector<HTMLElement>('[data-meta]')!;
+  const sendButton = root.querySelector<HTMLButtonElement>('[data-send]')!;
+  const resetButton = root.querySelector<HTMLButtonElement>('[data-reset]')!;
+  const status = root.querySelector<HTMLElement>('[data-status]')!;
+
+  const backend = cannedBackend();
+  let history: Turn[] = [];
+  let streaming: AbortController | null = null;
+
+  function openChat(focus: boolean) {
+    warning.classList.add('acked');
+    chat.hidden = false;
+    if (focus) input.focus();
+  }
+
+  try {
+    if (sessionStorage.getItem(ACK_KEY) === '1') openChat(false);
+  } catch {
+    // Storage can be blocked. The visitor just acknowledges again next visit.
+  }
+
+  ackButton.addEventListener('click', () => {
+    try {
+      sessionStorage.setItem(ACK_KEY, '1');
+    } catch {
+      // See above.
+    }
+    openChat(true);
+  });
+
+  function updateMeta() {
+    const left = LIMITS.maxTurns - questionsAsked(history);
+    const chars = input.value.length;
+    const questions = left === 1 ? '1 question left' : `${left} questions left`;
+    meta.textContent = chars > 0 ? `${chars}/${LIMITS.maxChars} · ${questions}` : questions;
+    const busy = streaming !== null;
+    input.disabled = busy || left <= 0;
+    sendButton.disabled = busy || left <= 0 || input.value.trim().length === 0;
+  }
+
+  // Messages are built with textContent only, so nothing a visitor or a model
+  // writes can inject markup into the page.
+  function addMessage(role: Turn['role'], text: string) {
+    const item = document.createElement('li');
+    item.className = 'askprash-msg';
+    item.dataset.role = role;
+    const who = document.createElement('span');
+    who.className = 'askprash-who';
+    who.textContent = role === 'user' ? 'You' : 'Not Prash';
+    const body = document.createElement('span');
+    body.className = 'askprash-body';
+    body.textContent = text;
+    item.append(who, body);
+    log.append(item);
+    item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return { item, body };
+  }
+
+  function addSource(item: HTMLElement, href: string, title: string) {
+    if (!isSafeHref(href)) return;
+    let sources = item.querySelector<HTMLElement>('.askprash-sources');
+    if (!sources) {
+      sources = document.createElement('p');
+      sources.className = 'askprash-sources';
+      sources.textContent = 'Source:';
+      item.append(sources);
+    }
+    const link = document.createElement('a');
+    link.href = href;
+    link.textContent = title;
+    sources.append(link);
+  }
+
+  async function send() {
+    const check = checkMessage(input.value, history);
+    if (!check.ok) {
+      if (check.reason === 'too-long') status.textContent = `Keep it under ${LIMITS.maxChars} characters.`;
+      if (check.reason === 'turn-limit') status.textContent = 'That is the limit for this chat. Hit New chat to start over.';
+      return;
+    }
+    status.textContent = '';
+    history.push({ role: 'user', text: check.text });
+    addMessage('user', check.text);
+    input.value = '';
+
+    const controller = new AbortController();
+    streaming = controller;
+    updateMeta();
+    const { item, body } = addMessage('assistant', '');
+    item.classList.add('thinking');
+    let reply = '';
+    try {
+      for await (const event of backend.reply(history, controller.signal)) {
+        if (event.type === 'text') {
+          reply += event.text;
+          body.textContent = reply;
+        } else {
+          addSource(item, event.href, event.title);
+        }
+      }
+      history.push({ role: 'assistant', text: reply });
+    } catch {
+      if (controller.signal.aborted) return;
+      body.textContent = reply || 'Something broke on my end. Try again in a bit.';
+      history.push({ role: 'assistant', text: body.textContent });
+    } finally {
+      item.classList.remove('thinking');
+      if (streaming === controller) streaming = null;
+    }
+    if (questionsAsked(history) >= LIMITS.maxTurns) {
+      status.textContent = 'That is the limit for this chat. Hit New chat to start over.';
+    }
+    updateMeta();
+    if (!input.disabled) input.focus();
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    send();
+  });
+
+  // Enter sends, Shift+Enter adds a line.
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      if (!sendButton.disabled) send();
+    }
+  });
+
+  input.addEventListener('input', updateMeta);
+
+  resetButton.addEventListener('click', () => {
+    streaming?.abort();
+    streaming = null;
+    history = [];
+    log.replaceChildren();
+    status.textContent = '';
+    input.value = '';
+    updateMeta();
+    input.focus();
+  });
+
+  updateMeta();
+</script>
