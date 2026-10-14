@@ -33,12 +33,15 @@ function isolate(req, res, next) {
 
 // In production Netlify serves /api/ask-prash from netlify/functions. This
 // serves the same handler under `astro dev`, reading keys from .env and the
-// corpus built by `npm run build`.
+// corpus built by `npm run build`. Counters live in memory, so rate limits
+// and spend reset whenever the dev server restarts.
 /** @type {import('vite').Plugin} */
 const askPrashApi = {
   name: 'ask-prash-api',
   configureServer(server) {
     const env = loadEnv('development', process.cwd(), '');
+    /** @type {Promise<any> | null} */
+    let counters = null;
     server.middlewares.use('/api/ask-prash', async (req, res) => {
       try {
         const { handle } = await server.ssrLoadModule('/src/tools/askprash/handler.ts');
@@ -61,7 +64,9 @@ const askPrashApi = {
           duplex: 'half',
           signal: controller.signal,
         });
-        const response = await handle(request, { env, corpus });
+        counters ??= server.ssrLoadModule('/src/tools/askprash/guard.ts').then((m) => m.memoryCounters());
+        const ip = req.socket.remoteAddress ?? '127.0.0.1';
+        const response = await handle(request, { env, corpus, ip, counters: await counters });
         res.statusCode = response.status;
         response.headers.forEach((value, key) => res.setHeader(key, value));
         if (!response.body) return res.end();

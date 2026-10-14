@@ -4,47 +4,117 @@
 // The bot is off unless ASK_PRASH_ENABLED is "true". That is the kill switch:
 // unset it in Netlify and every request gets a polite 503 without touching
 // the API.
+//
+// Checks run cheapest first, and nothing reaches the model until all pass:
+// kill switch, request shape, Turnstile or a signed session, the signature
+// on earlier replies, per-visitor limits, then the daily and monthly caps.
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { CorpusDoc } from './corpus.ts';
+import {
+  admit,
+  checkSession,
+  checkTurns,
+  hashIp,
+  issueSession,
+  recordSpend,
+  signTurns,
+  turnstileVerifier,
+  type Budget,
+  type Counters,
+  type TurnstileVerifier,
+} from './guard.ts';
 import { buildRequest, costUsd, parseHistory, replyEvents, type StreamResult } from './server.ts';
 
 export interface HandlerDeps {
   env: Record<string, string | undefined>;
   corpus: CorpusDoc[];
-  // Injected by tests; built from ANTHROPIC_API_KEY otherwise.
+  counters: Counters;
+  // The visitor's IP address. Only a keyed hash of it is ever stored.
+  ip: string;
+  // Injected by tests and evals; built from the environment otherwise.
   client?: Pick<Anthropic, 'messages'>;
+  verifyTurnstile?: TurnstileVerifier;
+  now?: () => Date;
+  fetch?: typeof fetch;
 }
 
 // Requests bigger than this are not a chat.
 const MAX_BODY_BYTES = 32_000;
 
+const OFF = "Ask Prash is off right now. Come back later, or just text Prash.";
+
 const json = (status: number, body: object) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
+function budgetFrom(env: HandlerDeps['env']): Budget {
+  const num = (value: string | undefined, fallback: number) => {
+    const n = Number(value);
+    return value && Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  return { dailyUsd: num(env.ASK_PRASH_DAILY_CAP_USD, 0.83), monthlyUsd: num(env.ASK_PRASH_MONTHLY_CAP_USD, 25) };
+}
+
 export async function handle(req: Request, deps: HandlerDeps): Promise<Response> {
-  if (deps.env.ASK_PRASH_ENABLED !== 'true') {
-    return json(503, { error: "Ask Prash is off right now. Come back later, or just text Prash." });
-  }
-  if (req.method !== 'POST') return json(405, { error: 'POST only.' });
-  if (!deps.client && !deps.env.ANTHROPIC_API_KEY) {
-    console.error('[ask-prash] ANTHROPIC_API_KEY is not set');
-    return json(503, { error: "Ask Prash is off right now. Come back later, or just text Prash." });
+  const { env } = deps;
+  if (env.ASK_PRASH_ENABLED !== 'true') return json(503, { error: OFF, code: 'off' });
+  if (req.method !== 'POST') return json(405, { error: 'POST only.', code: 'bad' });
+  const secret = env.ASK_PRASH_SECRET ?? '';
+  const missing = [
+    !deps.client && !env.ANTHROPIC_API_KEY && 'ANTHROPIC_API_KEY',
+    secret.length < 32 && 'ASK_PRASH_SECRET (32+ characters)',
+    !deps.verifyTurnstile && !env.TURNSTILE_SECRET_KEY && 'TURNSTILE_SECRET_KEY',
+  ].filter(Boolean);
+  if (missing.length) {
+    console.error(`[ask-prash] not configured, missing: ${missing.join(', ')}`);
+    return json(503, { error: OFF, code: 'off' });
   }
 
   const raw = await req.text();
-  if (raw.length > MAX_BODY_BYTES) return json(413, { error: 'Too much text.' });
-  let body: unknown;
+  if (raw.length > MAX_BODY_BYTES) return json(413, { error: 'Too much text.', code: 'bad' });
+  let body: { session?: unknown; turnstile?: unknown; sig?: unknown };
   try {
     body = JSON.parse(raw);
   } catch {
-    return json(400, { error: 'Malformed request.' });
+    return json(400, { error: 'Malformed request.', code: 'bad' });
   }
   const parsed = parseHistory(body);
-  if (!parsed.ok) return json(400, { error: parsed.error });
+  if (!parsed.ok) return json(400, { error: parsed.error, code: 'bad' });
+  const history = parsed.history;
 
-  const client = deps.client ?? new Anthropic({ apiKey: deps.env.ANTHROPIC_API_KEY, maxRetries: 1 });
-  const params = buildRequest(parsed.history, deps.corpus);
+  const now = (deps.now ?? (() => new Date()))();
+  const ipHash = await hashIp(secret, deps.ip);
+
+  // Who: a valid session, or a fresh Turnstile pass that earns one.
+  let session = typeof body.session === 'string' ? body.session : '';
+  let newSession = false;
+  if (!(await checkSession(secret, session, ipHash, now))) {
+    const verify = deps.verifyTurnstile ?? turnstileVerifier(env.TURNSTILE_SECRET_KEY!, deps.fetch);
+    if (typeof body.turnstile !== 'string' || !body.turnstile || !(await verify(body.turnstile, deps.ip))) {
+      return json(401, { error: 'Quick robot check first. Give it a second and try again.', code: 'verify' });
+    }
+    session = await issueSession(secret, ipHash, now);
+    newSession = true;
+  }
+  if (!(await checkTurns(secret, ipHash, history, body.sig))) {
+    return json(400, { error: "That conversation doesn't add up. Hit New chat to start over.", code: 'bad' });
+  }
+
+  // How often, and how much.
+  const budget = budgetFrom(env);
+  let admission;
+  try {
+    admission = await admit(deps.counters, ipHash, now, budget);
+  } catch (err) {
+    // If the counters can't be read, nothing gets through: limits that
+    // can't be checked are treated as hit.
+    console.error('[ask-prash] counters unavailable', String(err));
+    return json(503, { error: "I'm swamped right now. Try again in a minute.", code: 'busy' });
+  }
+  if (!admission.ok) return json(admission.status, { error: admission.error, code: admission.code });
+
+  const client = deps.client ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1 });
+  const params = buildRequest(history, deps.corpus);
   const started = Date.now();
   const result: StreamResult = { usage: {}, stopReason: null };
   const encoder = new TextEncoder();
@@ -52,23 +122,45 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: object) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
+      if (newSession) send({ type: 'session', token: session });
+      let reply = '';
+      let failed = false;
       try {
         const upstream = client.messages.stream(params, { signal: req.signal });
-        for await (const event of replyEvents(upstream, deps.corpus, result)) send(event);
+        for await (const event of replyEvents(upstream, deps.corpus, result)) {
+          if (event.type === 'text') reply += event.text;
+          send(event);
+        }
+        if (!reply.trim()) {
+          failed = true;
+          send({ type: 'error', message: 'I blanked on that one. Try asking another way.' });
+        }
       } catch (err) {
+        failed = true;
         if (!req.signal.aborted) {
           console.error('[ask-prash] upstream error', err instanceof Anthropic.APIError ? err.status : '', String(err));
           send({ type: 'error', message: 'Something broke on my end. Try again in a bit.' });
         }
-      } finally {
-        // Usage and cost only. The conversation itself is not logged here;
-        // encrypted logging arrives in a later milestone.
+      }
+      try {
+        if (!failed) {
+          // Signed in the same trimmed form parseHistory gives the next request.
+          const sig = await signTurns(secret, ipHash, [...history, { role: 'assistant', text: reply.trim() }]);
+          send({ type: 'turn', sig });
+        }
+        const cost = costUsd(result.usage);
+        const totals = await recordSpend(deps.counters, now, cost, budget);
+        // Usage and cost only. The conversation itself is not logged here.
         console.log(
-          `[ask-prash] turns=${parsed.history.length} stop=${result.stopReason} ` +
+          `[ask-prash] turns=${history.length} stop=${result.stopReason} ` +
             `in=${result.usage.input_tokens ?? 0} out=${result.usage.output_tokens ?? 0} ` +
             `cache_w=${result.usage.cache_creation_input_tokens ?? 0} cache_r=${result.usage.cache_read_input_tokens ?? 0} ` +
-            `cost=$${costUsd(result.usage).toFixed(5)} ms=${Date.now() - started}`,
+            `cost=$${cost.toFixed(5)} day=$${totals.dayUsd.toFixed(4)} month=$${totals.monthUsd.toFixed(4)} ms=${Date.now() - started}`,
         );
+        for (const cap of totals.crossed) await alert(deps, cap, cap === 'daily' ? budget.dailyUsd : budget.monthlyUsd);
+      } catch (err) {
+        console.error('[ask-prash] bookkeeping error', String(err));
+      } finally {
         controller.close();
       }
     },
@@ -77,4 +169,21 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
   return new Response(stream, {
     headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' },
   });
+}
+
+// Posts a plain-text heads-up to ASK_PRASH_ALERT_URL (an ntfy.sh topic works
+// as is) when spending crosses a cap. Failures are logged, never raised.
+async function alert(deps: HandlerDeps, cap: 'daily' | 'monthly', usd: number) {
+  const message =
+    cap === 'daily'
+      ? `Ask Prash hit today's $${usd.toFixed(2)} cap and is resting until midnight UTC.`
+      : `Ask Prash hit this month's $${usd.toFixed(2)} cap and is resting until next month.`;
+  console.warn(`[ask-prash] ${message}`);
+  const url = deps.env.ASK_PRASH_ALERT_URL;
+  if (!url) return;
+  try {
+    await (deps.fetch ?? fetch)(url, { method: 'POST', body: message });
+  } catch (err) {
+    console.error('[ask-prash] alert failed', String(err));
+  }
 }

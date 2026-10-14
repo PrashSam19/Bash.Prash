@@ -5,9 +5,14 @@
 import { LIMITS } from '../../tools/askprash/chat';
 
 const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
+const siteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? '';
 ---
 
-<section class="askprash" aria-label="Ask Prash" data-live={live ? 'true' : undefined}>
+<section
+  class="askprash"
+  aria-label="Ask Prash"
+  data-live={live ? 'true' : undefined}
+  data-sitekey={live ? siteKey : undefined}>
   <div class="askprash-warning" role="note" data-warning>
     <p class="askprash-warning-head">This is NOT me.</p>
     <p>
@@ -27,6 +32,8 @@ const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
     </p>
 
     <ol class="askprash-log" data-log aria-live="polite"></ol>
+
+    <div class="askprash-check" data-check></div>
 
     <form class="askprash-form" data-form>
       <label class="askprash-sr" for="askprash-input">Your question</label>
@@ -191,6 +198,10 @@ const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
     margin-left: 0.4rem;
   }
 
+  .askprash-check:not(:empty) {
+    margin-bottom: 0.75rem;
+  }
+
   .askprash-form textarea {
     display: block;
     width: 100%;
@@ -251,6 +262,7 @@ const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
     questionsAsked,
     type Turn,
   } from '../../tools/askprash/chat';
+  import { turnstileTokens } from '../../tools/askprash/turnstile';
 
   const ACK_KEY = 'askprash.ack';
 
@@ -266,13 +278,16 @@ const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
   const resetButton = root.querySelector<HTMLButtonElement>('[data-reset]')!;
   const status = root.querySelector<HTMLElement>('[data-status]')!;
 
-  const backend = root.dataset.live === 'true' ? httpBackend('/api/ask-prash') : cannedBackend();
+  const robotCheck = turnstileTokens(root.querySelector<HTMLElement>('[data-check]')!, root.dataset.sitekey ?? '');
+  const live = root.dataset.live === 'true';
+  const backend = live ? httpBackend('/api/ask-prash', { turnstile: (fresh) => robotCheck.token(fresh) }) : cannedBackend();
   let history: Turn[] = [];
   let streaming: AbortController | null = null;
 
   function openChat(focus: boolean) {
     warning.classList.add('acked');
     chat.hidden = false;
+    if (live) robotCheck.warm();
     if (focus) input.focus();
   }
 
@@ -408,6 +423,7 @@ const live = import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true';
     streaming?.abort();
     streaming = null;
     history = [];
+    backend.reset?.();
     log.replaceChildren();
     status.textContent = '';
     input.value = '';

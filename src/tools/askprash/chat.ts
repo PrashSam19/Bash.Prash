@@ -20,13 +20,19 @@ export interface Turn {
 }
 
 // A reply arrives as a stream of text pieces, plus the site pages it drew on.
+// session and turn are bookkeeping between httpBackend and the server; the
+// page only ever sees text, source, and error.
 export type ReplyEvent =
   | { type: 'text'; text: string }
   | { type: 'source'; href: string; title: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'session'; token: string }
+  | { type: 'turn'; sig: string };
 
 export interface Backend {
   reply(history: Turn[], signal?: AbortSignal): AsyncIterable<ReplyEvent>;
+  // Called on New chat, so the next conversation starts clean.
+  reset?(): void;
 }
 
 export type MessageCheck =
@@ -132,17 +138,42 @@ export function cannedBackend(delayMs = 35, pick: () => number = Math.random): B
   };
 }
 
+export interface HttpBackendOptions {
+  // Resolves a Turnstile token. fresh asks for a new check rather than a
+  // token the widget is already holding.
+  turnstile: (fresh: boolean) => Promise<string>;
+  fetch?: typeof fetch;
+}
+
 // Streams reply events from the Ask Prash endpoint, one JSON object per line.
-// A refused request (off, limited, malformed) comes back as a single error.
-export function httpBackend(url: string, fetchImpl: typeof fetch = fetch): Backend {
+// It keeps the session token the server hands out and the signature on the
+// latest reply, and sends both back with the next question. A refused request
+// (off, limited, malformed) comes back as a single error.
+export function httpBackend(url: string, options: HttpBackendOptions): Backend {
+  const fetchImpl = options.fetch ?? fetch;
+  let session = '';
+  let sig = '';
+
+  async function post(history: Turn[], turnstile: string, signal?: AbortSignal) {
+    return fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ history, session, sig, turnstile }),
+      signal,
+    });
+  }
+
   return {
+    reset() {
+      sig = '';
+    },
     async *reply(history, signal) {
-      const res = await fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ history }),
-        signal,
-      });
+      let res = await post(history, session ? '' : await options.turnstile(false), signal);
+      if (res.status === 401) {
+        // The session lapsed or the check failed: one fresh check, one retry.
+        session = '';
+        res = await post(history, await options.turnstile(true), signal);
+      }
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
         yield { type: 'error', message: body?.error ?? 'Something broke on my end. Try again in a bit.' };
@@ -150,15 +181,27 @@ export function httpBackend(url: string, fetchImpl: typeof fetch = fetch): Backe
       }
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
+      const handle = (line: string): ReplyEvent | null => {
+        if (!line.trim()) return null;
+        const event = JSON.parse(line) as ReplyEvent;
+        if (event.type === 'session') session = event.token;
+        else if (event.type === 'turn') sig = event.sig;
+        else return event;
+        return null;
+      };
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += value;
         const lines = buffer.split('\n');
         buffer = lines.pop()!;
-        for (const line of lines) if (line.trim()) yield JSON.parse(line) as ReplyEvent;
+        for (const line of lines) {
+          const event = handle(line);
+          if (event) yield event;
+        }
       }
-      if (buffer.trim()) yield JSON.parse(buffer) as ReplyEvent;
+      const last = handle(buffer);
+      if (last) yield last;
     },
   };
 }
