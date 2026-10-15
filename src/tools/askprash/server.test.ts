@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { LIMITS, SNARK, httpBackend, type ReplyEvent, type Turn } from './chat.ts';
+import { ADVICE, LIMITS, SNARK, httpBackend, type ReplyEvent, type Turn } from './chat.ts';
 import { pageText, type CorpusDoc } from './corpus.ts';
 import { memoryCounters } from './guard.ts';
 import { handle, type HandlerDeps } from './handler.ts';
@@ -63,7 +63,11 @@ for (let i = 0; i < SNARK.length; i++) {
   const note = buildRequest([q('hi')], corpus, () => i / SNARK.length).messages.at(-1)!.content as string;
   assert.ok(note.includes(SNARK[i]), 'every snark line can be picked');
 }
-for (const line of SNARK) assert.ok(SYSTEM.includes(line), 'every snark line is in the cached prompt');
+for (let i = 0; i < ADVICE.length; i++) {
+  const note = buildRequest([q('hi')], corpus, () => i / ADVICE.length).messages.at(-1)!.content as string;
+  assert.ok(note.includes(ADVICE[i]), 'every advice line can be picked');
+}
+for (const line of [...SNARK, ...ADVICE]) assert.ok(SYSTEM.includes(line), 'every line is in the cached prompt');
 assert.equal(SYSTEM, buildRequest([q('hi')], corpus, () => 0.9).system, 'the cached system prompt never varies with the pick');
 assert.ok(!JSON.stringify(req).includes('citations'), 'API citations stay off; they made Haiku quote pages');
 

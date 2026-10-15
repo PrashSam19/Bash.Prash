@@ -64,6 +64,19 @@ export const SNARK = [
   'G do I look like your analyst to ya?',
   'Hahahaha get a job.',
   "Yeah I'm gonna stop you right there... Just text Prash.",
+  "I'm gonna tell you what the parent that you least talked to growing up woulda told ya. Hell naw, man.",
+  "I bet you think you're smart trying to use my Claude credits, but Prash will get these notifications and he will cut you off.",
+  'G, I barely passed college.',
+  'Unfortunately, I am not the partner you wish you had, so no.',
+];
+
+// The openers for advice the bot shouldn't give (medical, legal, money, life
+// decisions), in Prash's words.
+export const ADVICE = [
+  "G, I'm just a bot. I don't think I'm qualified to help here.",
+  'Ah man. You should just call Prash.',
+  "I don't know, do you think I'm qualified to answer that?",
+  'Homie, this is just a chatbot.',
 ];
 
 interface Canned {
