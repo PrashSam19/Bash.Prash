@@ -19,6 +19,14 @@ const siteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? '';
       None of the opinions, suggested actions, or advice given by this bot are representative of my
       personal takes. It's a bot built to sound like me, and it gets things wrong.
     </p>
+    {
+      live && (
+        <p>
+          Chats are saved so I can make the bot better. They're encrypted so only I can read them, and
+          deleted after 90 days. Don't share anything private.
+        </p>
+      )
+    }
     <button type="button" data-ack>Got it, let me in</button>
   </div>
 

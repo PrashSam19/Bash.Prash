@@ -24,6 +24,7 @@ import {
   type Counters,
   type TurnstileVerifier,
 } from './guard.ts';
+import { writeLog, type LogSink } from './logbook.ts';
 import { buildRequest, costUsd, parseHistory, replyEvents, type StreamResult } from './server.ts';
 
 export interface HandlerDeps {
@@ -35,6 +36,9 @@ export interface HandlerDeps {
   // Injected by tests and evals; built from the environment otherwise.
   client?: Pick<Anthropic, 'messages'>;
   verifyTurnstile?: TurnstileVerifier;
+  // Where encrypted chat logs go. Logging is on only when this is set and
+  // ASK_PRASH_LOG_PUBLIC_KEY is too.
+  logs?: LogSink;
   now?: () => Date;
   fetch?: typeof fetch;
 }
@@ -124,11 +128,13 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
       const send = (event: object) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
       if (newSession) send({ type: 'session', token: session });
       let reply = '';
+      const sources: string[] = [];
       let failed = false;
       try {
         const upstream = client.messages.stream(params, { signal: req.signal });
         for await (const event of replyEvents(upstream, deps.corpus, result)) {
           if (event.type === 'text') reply += event.text;
+          else if (event.type === 'source') sources.push(event.href);
           send(event);
         }
         if (!reply.trim()) {
@@ -150,7 +156,8 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
         }
         const cost = costUsd(result.usage);
         const totals = await recordSpend(deps.counters, now, cost, budget);
-        // Usage and cost only. The conversation itself is not logged here.
+        // Plain logs carry usage and cost only; the conversation itself goes
+        // only into the encrypted log below.
         console.log(
           `[ask-prash] turns=${history.length} stop=${result.stopReason} ` +
             `in=${result.usage.input_tokens ?? 0} out=${result.usage.output_tokens ?? 0} ` +
@@ -160,6 +167,28 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
         for (const cap of totals.crossed) await alert(deps, cap, cap === 'daily' ? budget.dailyUsd : budget.monthlyUsd);
       } catch (err) {
         console.error('[ask-prash] bookkeeping error', String(err));
+      }
+      try {
+        const publicKey = env.ASK_PRASH_LOG_PUBLIC_KEY;
+        if (deps.logs && publicKey && !req.signal.aborted) {
+          await writeLog(
+            deps.logs,
+            publicKey,
+            {
+              at: now.toISOString(),
+              visitor: ipHash,
+              history: [...history, { role: 'assistant', text: reply.trim() }],
+              sources,
+              outcome: failed ? 'failed' : result.stopReason === 'refusal' ? 'refused' : 'answered',
+              stopReason: result.stopReason,
+              costUsd: costUsd(result.usage),
+            },
+            now,
+          );
+        }
+      } catch (err) {
+        // A lost log entry never costs the visitor their reply.
+        console.error('[ask-prash] log write failed', String(err));
       } finally {
         controller.close();
       }

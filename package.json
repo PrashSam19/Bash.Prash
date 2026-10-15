@@ -11,7 +11,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "eval": "node scripts/askprash-eval.ts",
-    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts && node src/games/prashboy/rom.test.ts && node src/tools/askprash/chat.test.ts && node src/tools/askprash/server.test.ts && node src/tools/askprash/guard.test.ts"
+    "logs": "node scripts/askprash-logs.ts",
+    "test": "node src/games/sudoku/engine.test.ts && node src/games/motherload/engine.test.ts && node src/games/motherload/save.test.ts && node src/games/prashboy/rom.test.ts && node src/tools/askprash/chat.test.ts && node src/tools/askprash/server.test.ts && node src/tools/askprash/guard.test.ts && node src/tools/askprash/logbook.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.134.0",

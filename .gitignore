@@ -32,3 +32,6 @@ PrashPics/
 
 # Built from dist/ by scripts/askprash-corpus.ts
 src/tools/askprash/corpus.generated.json
+
+# Encrypted Ask Prash logs written by the dev server
+.askprash-logs/
