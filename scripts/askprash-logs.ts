@@ -118,6 +118,14 @@ async function pull() {
 
 // A single self-contained page, written next to the decrypted chats and opened
 // from disk. It holds real conversations, so it is never published anywhere.
+// "Chennai, Tamil Nadu, India 600001 (13.08, 80.27) · Asia/Kolkata"
+function where({ geo }: LogEntry): string {
+  if (!geo) return '';
+  const place = [geo.city, geo.region, geo.country].filter(Boolean).join(', ');
+  const coords = geo.latitude != null && geo.longitude != null ? `(${geo.latitude}, ${geo.longitude})` : '';
+  return [[place, geo.postalCode, coords].filter(Boolean).join(' '), geo.timezone].filter(Boolean).join(' · ');
+}
+
 function dashboard(entries: LogEntry[], chats: LogEntry[]): string {
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const days = new Map<string, { questions: number; cost: number; visitors: Set<string> }>();
@@ -156,6 +164,8 @@ function dashboard(entries: LogEntry[], chats: LogEntry[]): string {
         `<details><summary><span class="tag ${c.outcome}">${c.outcome}</span> ${esc(c.at.slice(0, 16).replace('T', ' '))} UTC · visitor ${esc(c.visitor.slice(0, 6))} · ${c.history.length / 2} questions · ${esc(c.history[0]?.text.slice(0, 80) ?? '')}</summary>` +
         c.history.map((t) => `<p class="${t.role}">${esc(t.text)}</p>`).join('') +
         (c.sources.length ? `<p class="meta">sources: ${c.sources.map(esc).join(' ')}</p>` : '') +
+        (where(c) ? `<p class="meta">from: ${esc(where(c))}</p>` : '') +
+        (c.userAgent ? `<p class="meta">browser: ${esc(c.userAgent)}</p>` : '') +
         `</details>`,
     )
     .join('');

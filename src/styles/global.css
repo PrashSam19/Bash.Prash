@@ -166,6 +166,15 @@ main {
   text-decoration: none;
 }
 
+/* Page-specific notes (like the Ask Prash privacy line) read as a sentence. */
+.site-footer .footer-note {
+  display: block;
+  margin-top: 0.5rem;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
+}
+
 /* Home page: name, tagline, and a numbered table of contents. */
 .home {
   padding-top: clamp(1rem, 8vh, 5rem);

@@ -14,6 +14,20 @@ export interface LogEntry {
   outcome: 'answered' | 'refused' | 'failed';
   stopReason: string | null;
   costUsd: number;
+  // Approximate location from the visitor's IP (Netlify's geo lookup), and
+  // their browser's user agent. Only ever stored sealed; never sent to the model.
+  geo?: Geo;
+  userAgent?: string;
+}
+
+export interface Geo {
+  city?: string;
+  region?: string;
+  country?: string;
+  postalCode?: string;
+  latitude?: number;
+  longitude?: number;
+  timezone?: string;
 }
 
 export interface LogSink {

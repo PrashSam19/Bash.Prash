@@ -24,7 +24,7 @@ import {
   type Counters,
   type TurnstileVerifier,
 } from './guard.ts';
-import { writeLog, type LogSink } from './logbook.ts';
+import { writeLog, type Geo, type LogSink } from './logbook.ts';
 import { buildRequest, costUsd, parseHistory, replyEvents, type StreamResult } from './server.ts';
 
 export interface HandlerDeps {
@@ -33,6 +33,8 @@ export interface HandlerDeps {
   counters: Counters;
   // The visitor's IP address. Only a keyed hash of it is ever stored.
   ip: string;
+  // Approximate location for the encrypted log only.
+  geo?: Geo;
   // Injected by tests and evals; built from the environment otherwise.
   client?: Pick<Anthropic, 'messages'>;
   verifyTurnstile?: TurnstileVerifier;
@@ -182,6 +184,8 @@ export async function handle(req: Request, deps: HandlerDeps): Promise<Response>
               outcome: failed ? 'failed' : result.stopReason === 'refusal' ? 'refused' : 'answered',
               stopReason: result.stopReason,
               costUsd: costUsd(result.usage),
+              geo: deps.geo,
+              userAgent: req.headers.get('user-agent')?.slice(0, 300) || undefined,
             },
             now,
           );

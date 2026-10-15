@@ -86,6 +86,13 @@ const path = Astro.url.pathname;
         </span>
         <ThemeToggle />
       </div>
+      {
+        Astro.slots.has('footer-note') && (
+          <div class="wrap footer-note">
+            <slot name="footer-note" />
+          </div>
+        )
+      }
     </footer>
   </body>
 </html>

@@ -41,4 +41,12 @@ const Play = entry.data.play ? games[entry.data.play] : null;
   <div class="prose">
     <Content />
   </div>
+  {
+    entry.data.play === 'askprash' && import.meta.env.PUBLIC_ASK_PRASH_LIVE === 'true' && (
+      <p slot="footer-note">
+        Ask Prash chats are saved privately for 90 days, along with your approximate location (from
+        your internet connection) and browser type. Only I can read them.
+      </p>
+    )
+  }
 </Base>
